@@ -1,0 +1,15 @@
+[package]
+name = "web-vlog"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+sha1 = "0.10"
+bytemuck = "*"
+v-log = "0.1"
+log = "0.4"
+
+[dev-dependencies]
+open = "5"

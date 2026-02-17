@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>WebVLogger</title>
+<style>#m a {display: block;}</style>
+<script>
+const NS = "http://www.w3.org/2000/svg";
+var websocket,_p;
+function start(event) {
+  let svg = document.getElementById("g");
+  svg.setAttribute("width",window.innerWidth);
+  svg.setAttribute("height",window.innerHeight);
+  function add_label(p,lbl,size,col,align) {
+    var t = document.createElementNS(NS,'text');
+    t.textContent = lbl;
+    t.style.fill = col;
+    t.style.fontSize = size;
+    t.style.textAnchor = align==1?"middle":align==0?"left":align==2?"right":"middle";
+    t.style.dominantBaseline = align==2?"ideographic":"central";
+    t.setAttribute("x",p[0]);
+    t.setAttribute("y",p[1]);
+    svg.appendChild(t);
+  }
+  function add_point(p,lbl,size,col,s) {
+    // TODO handle style correctly
+    let c = document.createElementNS(NS, 'circle');
+    c.setAttribute("r", size/2);
+    if(s=="FilledCircle"||s=="Point") {c.style.fill=col;}
+    if(s=="Circle"||s=="DashedCircle"||s=="PointOutline") {c.style.stroke=col;c.style.strokeWidth=2;}
+    if(s=="DashedCircle") {c.style.strokeDasharray = "4 6";}
+    var t = document.createElementNS(NS, 'text');
+    t.textContent = lbl;
+    t.style.fill = c.style.fill!=""?"white":col;
+    t.style.textAnchor = "middle";
+    let b=lbl.length*10<=size;
+    t.style.dominantBaseline = b?"central":"ideographic";
+    if(!b){t.setAttribute("y",-size/2);}
+    var gc = document.createElementNS(NS,'g');
+    gc.appendChild(c);
+    gc.setAttribute("transform",`translate(${p[0]},${p[1]})`);
+    gc.appendChild(t);
+    svg.appendChild(gc);
+  }
+  function add_line(p1,p2,lbl,thick,col,style) {
+    let l = document.createElementNS(NS,'line');
+    l.style.stroke = col;
+    l.style.strokeWidth = `${thick}px`;
+    l.style.strokeLinecap = `round`;
+    l.style.strokeDasharray = style=="Dashed"?"4 6":"";
+    [["x1",p1[0]],["y1",p1[1]],["x2",p2[0]],["y2",p2[1]]].forEach(([k,v])=>l.setAttribute(k,v));
+    // TODO add label and arrowheads.
+    svg.appendChild(l);
+  }
+  function recv(e) {
+    console.log(e.data);
+    let json = JSON.parse(e.data);
+    if (json.msg !== undefined) {let a = document.createElement("a");a.textContent=json.msg;a.style.color=json.color;document.getElementById("m").appendChild(a);}
+    else if (json.clear !== undefined) {svg.innerHTML = "";}
+    else if (json.pos2 !== undefined) {add_line(json.pos, json.pos2, json.label, json.size, json.color, json.style);}
+    else if (json.align !== undefined) {add_label(json.pos, json.label, json.size, json.color, json.align);}
+    else {add_point(json.pos, json.label, json.size, json.color, json.style);}
+    document.getElementById("s").innerHTML=json.surface!==undefined?String(json.surface):"Default Surface";
+  };
+  function cnt(){websocket=new WebSocket("ws://127.0.0.1:13701");websocket.onmessage=recv;
+  //websocket.onopen=(e)=>{if(_p===undefined){_p=setInterval(()=>{if(websocket.readyState==WebSocket.CLOSED&&!document.hidden){cnt();}},2000);}}
+  }cnt();
+}
+document.addEventListener("DOMContentLoaded", start);
+</script>
+</head>
+<body style="margin: 0px; background-color: black;">
+<main style="margin: 0px;">
+<a id="s" style="color: white;">Default Surface</Default></a>
+<div id="m"></div>
+<svg id="g" width="100" height="100" style="margin: 0px;"></svg>
+</main>
+</body>
+</html>
