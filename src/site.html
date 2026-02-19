@@ -3,77 +3,145 @@
 <head>
 <meta charset="utf-8">
 <title>WebVLogger</title>
-<style>#m a {display: block;}</style>
+<style>
+:root {--healthy:#7D0;--base:#fff;--back:#222;--warn:#FC0;--error:#F45;--info:#58F;--x:#F03;--y:#0F3;--z:#25F;}
+#m{position:absolute;bottom:0;overflow:scroll;max-height:30%;background:#2228;}
+#m a{display:block;}
+#b svg{position:absolute;top:0;left:0;pointer-events:none;}
+a{pointer-events:visible;}
+#s{margin:10px;padding:3px;background:#444;border:#CCC;border-radius:4px;position:absolute;top:0;right:0;}
+#s button{display:block;border:none;background:#444;margin: top 2px bottom 2px;width:100%;height:21pt;font-size:14pt;}
+#s button:hover{background:#666;}
+</style>
 <script>
-const NS = "http://www.w3.org/2000/svg";
-var websocket,_p;
-function start(event) {
-  let svg = document.getElementById("g");
-  svg.setAttribute("width",window.innerWidth);
-  svg.setAttribute("height",window.innerHeight);
-  function add_label(p,lbl,size,col,align) {
-    var t = document.createElementNS(NS,'text');
-    t.textContent = lbl;
-    t.style.fill = col;
-    t.style.fontSize = size;
-    t.style.textAnchor = align==1?"middle":align==0?"left":align==2?"right":"middle";
-    t.style.dominantBaseline = align==2?"ideographic":"central";
-    t.setAttribute("x",p[0]);
-    t.setAttribute("y",p[1]);
-    svg.appendChild(t);
-  }
-  function add_point(p,lbl,size,col,s) {
-    // TODO handle style correctly
-    let c = document.createElementNS(NS, 'circle');
-    c.setAttribute("r", size/2);
-    if(s=="FilledCircle"||s=="Point") {c.style.fill=col;}
-    if(s=="Circle"||s=="DashedCircle"||s=="PointOutline") {c.style.stroke=col;c.style.strokeWidth=2;}
-    if(s=="DashedCircle") {c.style.strokeDasharray = "4 6";}
-    var t = document.createElementNS(NS, 'text');
-    t.textContent = lbl;
-    t.style.fill = c.style.fill!=""?"white":col;
-    t.style.textAnchor = "middle";
-    let b=lbl.length*10<=size;
-    t.style.dominantBaseline = b?"central":"ideographic";
-    if(!b){t.setAttribute("y",-size/2);}
-    var gc = document.createElementNS(NS,'g');
-    gc.appendChild(c);
-    gc.setAttribute("transform",`translate(${p[0]},${p[1]})`);
-    gc.appendChild(t);
-    svg.appendChild(gc);
-  }
-  function add_line(p1,p2,lbl,thick,col,style) {
-    let l = document.createElementNS(NS,'line');
-    l.style.stroke = col;
-    l.style.strokeWidth = `${thick}px`;
-    l.style.strokeLinecap = `round`;
-    l.style.strokeDasharray = style=="Dashed"?"4 6":"";
-    [["x1",p1[0]],["y1",p1[1]],["x2",p2[0]],["y2",p2[1]]].forEach(([k,v])=>l.setAttribute(k,v));
-    // TODO add label and arrowheads.
-    svg.appendChild(l);
-  }
-  function recv(e) {
-    console.log(e.data);
-    let json = JSON.parse(e.data);
-    if (json.msg !== undefined) {let a = document.createElement("a");a.textContent=json.msg;a.style.color=json.color;document.getElementById("m").appendChild(a);}
-    else if (json.clear !== undefined) {svg.innerHTML = "";}
-    else if (json.pos2 !== undefined) {add_line(json.pos, json.pos2, json.label, json.size, json.color, json.style);}
-    else if (json.align !== undefined) {add_label(json.pos, json.label, json.size, json.color, json.align);}
-    else {add_point(json.pos, json.label, json.size, json.color, json.style);}
-    document.getElementById("s").innerHTML=json.surface!==undefined?String(json.surface):"Default Surface";
-  };
-  function cnt(){websocket=new WebSocket("ws://127.0.0.1:13701");websocket.onmessage=recv;
-  //websocket.onopen=(e)=>{if(_p===undefined){_p=setInterval(()=>{if(websocket.readyState==WebSocket.CLOSED&&!document.hidden){cnt();}},2000);}}
-  }cnt();
+$=(n)=>document.getElementById(n);
+$c=(t)=>document.createElementNS("http://www.w3.org/2000/svg",t);
+$s=(x,y,z)=>x.setAttribute(y,z);
+document.addEventListener("DOMContentLoaded",(_)=>{
+function txt(lbl,size,col,anchor,base) {
+  let t=$c('text');
+  t.textContent=lbl;Object.assign(t.style,{fill:col,stroke:"black",strokeWidth:1.5,strokeJoin:"bevel",paintOrder:"stroke",fontSize:`${size}px`,textAnchor:anchor,dominantBaseline:base,});
+  return t;
 }
-document.addEventListener("DOMContentLoaded", start);
+function add_label(p,lbl,size,col,align,hr){
+  let a=$c('a');
+  $s(a,"href",hr);
+  let t=txt(lbl,size,col,align==1?"middle":(align==0?"start":(align==2?"end":"middle")),align==3?"ideographic":"central");
+  $s(t,"x",p[0]+.5);
+  $s(t,"y",p[1]+.5);
+  a.appendChild(t);
+  svg.appendChild(a);
+}
+function add_point(p,lbl,size,col,s,hr){
+  let gc=$c('a');
+  $s(gc,"href",hr);
+  let x=size/2.8284,d=s.startsWith("PointD");
+  if(s.endsWith("le")||s=="Point"||s=="PointOutline"){
+    let c = $c('circle');
+    $s(c,"r", size/2);
+    c.style.fill=s=="FilledCircle"||s=="Point"?col:"none";
+    if(s=="Circle"||s=="DashedCircle"||s=="PointOutline") {c.style.stroke=col;c.style.strokeWidth=1.5;}
+    if(s=="DashedCircle") {c.style.strokeDasharray="4 3";}
+    gc.appendChild(c);
+  }else if(d||s.startsWith("PointS")){
+    let r = $c('rect');
+    $s(r,"x",-x);$s(r,"y",-x);
+    $s(r,"width",x*2);$s(r,"height",x*2);
+    if(d){$s(r,"transform","rotate(45)");}
+    if(s.endsWith("ne")){r.style.stroke=col;r.style.strokeWidth=1.5;r.style.fill="none";} else {r.style.fill=col;}
+    gc.appendChild(r);
+  }else if(s=="PointCross"){
+    for(y of [-x,x]){
+      let l=$c('line');
+      l.style.stroke=col;l.style.strokeWidth=1.5;
+      $s(l,"x1",-x);$s(l,"y1",-y);$s(l,"x2",x);$s(l,"y2",y);
+      gc.appendChild(l);
+    }
+  }
+  if(lbl!=""){
+    let b=lbl.length*10<=size&&s!="PointCross";
+    let t=txt(lbl,16,(s=="FilledCircle"||(s.startsWith("P")&&!s.endsWith("ne")))&&b?"white":col,"middle",b?"central":"ideographic");
+    if(!b){$s(t,"y",-size/2);}
+    gc.appendChild(t);
+  }
+  $s(gc,"transform",`translate(${p[0]+.5},${p[1]+.5})`);
+  gc.dataset["scaled"] = s.startsWith("Point");
+  svg.appendChild(gc);
+}
+function add_line(p1,p2,lbl,thick,col,s,hr){
+  let a=$c('a');
+  $s(a,"href",hr);
+  let l=$c('line');
+  l.style.stroke=col;
+  l.style.strokeWidth=`${thick}px`;
+  l.style.strokeLinecap=`round`;
+  l.style.strokeDasharray=s=="Dashed"?`${thick} ${2*thick}`:"";
+  [["x1",p1[0]],["y1",p1[1]],["x2",p2[0]],["y2",p2[1]]].forEach(([k,v])=>$s(l,k,v+.5));
+  a.appendChild(l);
+  let x=p2[0]-p1[0],y=p2[1]-p1[1],h=thick*2/Math.hypot(x,y);
+  if(s=="Arrow"){
+    $s(l,"x2",p2[0]-x*h+.5);
+    $s(l,"y2",p2[1]-y*h+.5);
+    let z = $c('path');
+    $s(z,"d","M -2 -1 v 2 L 0 0 Z");
+    z.style.fill=col;
+    let t=Math.atan2(p2[1]-p1[1],p2[0]-p1[0]);
+    $s(z,"transform",`translate(${p2[0]+.5},${p2[1]+.5}) scale(${thick+3}) rotate(${t*180/3.1415})`)
+    a.appendChild(z);
+  }else if(s.endsWith("CW")){
+    l=$c('line');
+    l.style.stroke=col;
+    l.style.strokeWidth=`${thick}px`;
+    l.style.strokeLinecap=`round`;
+    (s.endsWith("CCW")?[["x1",p1[0]+x/2+x*h],["y1",p1[1]+y/2+y*h],["x2",p1[0]+x/2+y*h],["y2",p1[1]+y/2-x*h]]:[["x1",p1[0]+x/2+x*h],["y1",p1[1]+y/2+y*h],["x2",p1[0]+x/2-y*h],["y2",p1[1]+y/2+x*h]]).forEach(([k,v])=>$s(l,k,v+.5));
+    a.appendChild(l);
+  }
+  if(lbl!=""){
+    let t=txt(lbl,16,col,"middle","ideographic");
+    $s(t,"x",p1[0]+x/2);
+    $s(t,"y",p1[1]+y/2);
+    a.appendChild(t);
+  }
+  svg.appendChild(a);
+}
+m=$("m");qu=[];scr=()=>m.scrollTop=m.scrollHeight;
+ws=new WebSocket(`ws://${location.hostname}:13701`);
+ws.onmessage=(e)=>{
+  let j=JSON.parse(e.data);
+  if(j.surf===undefined)return;
+  qu.push(j);
+  requestAnimationFrame((e)=>{
+    let q=qu;qu=[];
+    for (j of q){
+      let s=`_${j.surf}`,hr,p;svg=$(s);
+      if(svg==null){svg=$c('svg');svg.id=s;$('b').appendChild(svg);rsz();}
+      if(j.meta){p=j.meta.split(";");hr=`vscode://file/${p[1]}:0`;}
+      if(j.msg!==undefined) {let a=document.createElement("a");a.textContent=`${j.meta.split(";")[0]}: ${j.msg} (line ${j.meta.split(":")[1]})`;a.href=hr;a.dataset["s"]=j.surf;a.style.color=j.color;m.appendChild(a);scr();}
+      else if(j.clear){svg.innerHTML="";for(e of m.children){if(j.surf==e.dataset["s"]){m.removeChild(e)}}}
+      else if(j.pos2!==undefined){add_line(j.pos, j.pos2, j.label, j.size, j.color, String(j.style), hr);}
+      else if(j.align!==undefined){add_label(j.pos, j.label, j.size, j.color, j.align, hr);}
+      else {add_point(j.pos, j.label, j.size, j.color, String(j.style), hr);}
+      s=`-${j.surf}`;let btn=$(s);
+      if (btn==null) {
+        btn=document.createElement('button');btn.id=s;btn.textContent=`${j.surf}`;btn.style.color="#FFF";
+        let sb=svg;btn.onclick=(e)=>{if(sb.style.visibility!="hidden")
+        {btn.style.color="#777";sb.style.visibility="hidden";}else
+        {btn.style.color="#FFF";sb.style.visibility="visible";}
+        for(e of $("m").children){let s=e.dataset["s"];if (s!=null){if($(`_${s}`).style.visibility!="hidden"){e.style.display="block";}else {e.style.display="none";}}}scr();};
+        $('s').appendChild(btn);
+      }
+    }
+  });
+};
+ws.onclose=(e)=>{let a=document.createElement("a");a.textContent=`Connection Closed`;a.style.color="var(--error)";a.style.fontWeight="bold";m.appendChild(a);scr();};
+function rsz(e){for (s of document.getElementsByTagName("svg")){$s(s,"width",window.innerWidth);$s(s,"height",window.innerHeight);}}
+document.onresize=rsz;rsz();
+});
 </script>
 </head>
-<body style="margin: 0px; background-color: black;">
-<main style="margin: 0px;">
-<a id="s" style="color: white;">Default Surface</Default></a>
+<body style="margin:0px;background-color:var(--back);font-family:sans;">
+<div id="b"></div>
+<div id="s"></div>
 <div id="m"></div>
-<svg id="g" width="100" height="100" style="margin: 0px;"></svg>
-</main>
 </body>
 </html>

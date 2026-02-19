@@ -6,20 +6,86 @@ use v_log::*;
 #[rustfmt::skip]
 fn test_init() {
     let _ = web_vlog::init();
+
+    let msgcol = Color::Healthy;
     
-    message!("", color: Healthy, "Early message");
+    // Test both variants of specifying color
+    message!("", color: msgcol, "Early message 1");
+    message!("table1", color: Healthy, "Early message (Table 1)");
 
     let _ = open::that("http://localhost:13700/");
     std::thread::sleep(Duration::from_millis(1000));
 
-    message!("", "Test message");
-    polyline!("", ([10., 10.], [10., 100.], [100., 100.], [100., 10.],), 2.0, Base, "--");
-    point!("", [55., 55.], 90., Healthy, "--O", "Center");
-    label!("", [200., 200.], (12., Healthy, "<"), "Outside");
-    point!("", [145., 55.], 90., X, "O", "Filled");
-    point!("", [55., 145.], 90., Y, "-O", "Outlined");
-    message!("", color: Warn, "Finished");
+    // Also test no color
+    message!("table2", "Test message (Table 2)");
 
-    std::thread::sleep(Duration::from_millis(3000));
+    // Now draw a table with all the different styles
+    let scale = 35.;
+    // Table 1:
+    // x: Point Style
+    // y: Size/Color
+    {
+        use PointStyle::*;
+        use Color::*;
+        let colors = [Base, Healthy, Info, Warn, Error, X, Y, Z, Hex(0xFF00FFFF)];
+        let offx = 20.;
+        let offy = 50.;
+        for (y, _) in colors.iter().enumerate() {
+            let y = y as f64;
+            polyline!("table1", ([offx, offy+y*scale], [offx+9.*scale, offy+y*scale]), 1.0, Base, "-");
+        }
+        for (x, point_style) in [Circle, FilledCircle, DashedCircle, Point, PointOutline, PointSquare, PointSquareOutline, PointDiamond, PointDiamondOutline, PointCross].into_iter().enumerate() {
+            let x = x as f64;
+            polyline!("table1", ([offx+x*scale, offy], [offx+x*scale, offy+8.*scale]), 1.0, Base, "-");
+            for (y, color) in colors.iter().copied().enumerate() {
+                let size = (y + 2) as f64 * 3.;
+                let y = y as f64;
+                // Note, that for color one can not put an expr made up of multiple tokens...
+                point!("table1", [offx+x*scale, offy+y*scale], size, color, point_style, "{y}");
+            }
+        }
+    }
+    // Table 2:
+    // x: Line Type
+    // y: Label Alignment and Size
+    {
+        use LineStyle::*;
+        use Color::*;
+        let offset = 11. * scale;
+        let scale = 60.;
+        let line_styles = [Simple, Dashed, Arrow, InsideHarpoonCCW, InsideHarpoonCW];
+        let colors = [Base, Healthy, Info, Warn, Error];
+        let alignments = [TextAlignment::Left, TextAlignment::Center, TextAlignment::Right, TextAlignment::Flexible];
+        for (x, (line_style, color)) in line_styles.into_iter().zip(colors.into_iter()).enumerate() {
+            let x = x as f64;
+            for (y, align) in alignments.iter().copied().enumerate() {
+                let size = (y + 2) as f64;
+                let y = y as f64;
+                polyline!("table2", ([x*scale, y*scale + offset], [(x + 1.)*scale, y*scale + offset]), size, color, line_style, "L {x},{y}");
+                polyline!("table2", ([x*scale, (y + 0.5)*scale + offset], [(x + 1.)*scale, (y + 0.5)*scale + offset]), 1.0, Base, "-");
+                polyline!("table2", ([(x + 0.5)*scale, (y + 0.6)*scale + offset], [(x + 0.5)*scale, (y + 0.4)*scale + offset]), 1.0, Base, "-");
+                label!("table2", [(x + 0.5)*scale, (y + 0.5)*scale + offset], (x*4.+8., color, align), "{x}");
+            }
+        }
+    }
+    // Draw an animation of a loading symbol (simple performance test)
+    for i in 0..200 {
+        let t = (i as f64) * 0.2;
+        clear!("loading");
+        for x in 0..40 {
+            let x1 = (t + (x as f64)*0.1).cos() * 20. + 400.;
+            let y1 = (t + (x as f64)*0.1).sin() * 20. + 400.;
+            let x2 = (t + (x as f64 + 1.)*0.1).cos() * 20. + 400.;
+            let y2 = (t + (x as f64 + 1.)*0.1).sin() * 20. + 400.;
+            polyline!("loading", ([x1, y1], [x2, y2]), x as f64/3., Info);
+        }
+        message!("loading", "{:.1}%", i as f64/2.);
+        std::thread::sleep(Duration::from_millis(16));
+    }
+
+    for _ in 0..100 {
+        message!("loading", "finished");
+    }
+    std::thread::sleep(Duration::from_millis(1000));
     clear!("");
 }

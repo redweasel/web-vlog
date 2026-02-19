@@ -1,7 +1,6 @@
 use anyhow::{Error, Result};
 use base64::{prelude::BASE64_STANDARD, Engine};
 use sha1::Digest;
-use std::fmt::Write as _;
 use std::{
     io::{prelude::*, BufReader, BufWriter},
     net::*,
@@ -38,39 +37,47 @@ impl VLog for WebVLogger {
         // convert the record into a message to be send to the frontend.
         if let Some(sender) = self.sender.as_ref() {
             let surface = record.surface().escape_default();
-            let mut msg = String::new();
+            let msg;
             let size = record.size();
-            let color = match record.color() {
-                Color::Base => "white".to_owned(),
-                Color::Healthy => "lime".to_owned(),
-                Color::Error => "red".to_owned(),
-                Color::Warn => "yellow".to_owned(),
-                Color::Info => "blue".to_owned(),
-                Color::X => "red".to_owned(),
-                Color::Y => "#0F0".to_owned(),
-                Color::Z => "blue".to_owned(),
-                Color::Hex(code) => format!("#{code:08X}"),
+            let hexcode;
+            let color = match *record.color() {
+                Color::Base => format_args!("var(--base)"),
+                Color::Healthy => format_args!("var(--healthy)"),
+                Color::Error => format_args!("var(--error)"),
+                Color::Warn => format_args!("var(--warn)"),
+                Color::Info => format_args!("var(--info)"),
+                Color::X => format_args!("var(--x)"),
+                Color::Y => format_args!("var(--y)"),
+                Color::Z => format_args!("var(--z)"),
+                Color::Hex(code) => {
+                    hexcode = code;
+                    format_args!("#{hexcode:08X}")
+                }
             };
+            let meta = format_args!(
+                "{};{}/{}:{}",
+                record.target().escape_default(),
+                env!("CARGO_MANIFEST_DIR").escape_default(),
+                record.file().unwrap_or("").trim_start_matches('.').escape_default(),
+                record.line().unwrap_or(0)
+            );
             match record.visual() {
                 Visual::Message => {
-                    let _ = write!(
-                        &mut msg,
-                        "{{\"msg\":\"{}\",\"surface\":\"{surface}\",\"color\":\"{color}\"}}",
+                    msg = format!(
+                        "{{\"msg\":\"{}\",\"surf\":\"{surface}\",\"color\":\"{color}\",\"meta\":\"{meta}\"}}",
                         record.args().to_string().escape_default()
                     );
                 }
                 Visual::Label { x, y, z, alignment } => {
-                    let _ = write!(
-                        &mut msg,
-                        "{{\"label\":\"{}\",\"pos\":[{x},{y},{z}],\"align\":{},\"surface\":\"{surface}\",\"size\":{size},\"color\":\"{color}\"}}",
+                    msg = format!(
+                        "{{\"label\":\"{}\",\"pos\":[{x},{y},{z}],\"align\":{},\"surf\":\"{surface}\",\"size\":{size},\"color\":\"{color}\",\"meta\":\"{meta}\"}}",
                         record.args().to_string().escape_default(),
                         *alignment as u8
                     );
                 }
                 Visual::Point { x, y, z, style } => {
-                    let _ = write!(
-                        &mut msg,
-                        "{{\"label\":\"{}\",\"pos\":[{x},{y},{z}],\"style\":\"{:?}\",\"surface\":\"{surface}\",\"size\":{size},\"color\":\"{color}\"}}",
+                    msg = format!(
+                        "{{\"label\":\"{}\",\"pos\":[{x},{y},{z}],\"style\":\"{:?}\",\"surf\":\"{surface}\",\"size\":{size},\"color\":\"{color}\",\"meta\":\"{meta}\"}}",
                         record.args().to_string().escape_default(),
                         style
                     );
@@ -84,9 +91,8 @@ impl VLog for WebVLogger {
                     z2,
                     style,
                 } => {
-                    let _ = write!(
-                        &mut msg,
-                        "{{\"label\":\"{}\",\"pos\":[{x1},{y1},{z1}],\"pos2\":[{x2},{y2},{z2}],\"style\":\"{:?}\",\"surface\":\"{surface}\",\"size\":{size},\"color\":\"{color}\"}}",
+                    msg = format!(
+                        "{{\"label\":\"{}\",\"pos\":[{x1},{y1},{z1}],\"pos2\":[{x2},{y2},{z2}],\"style\":\"{:?}\",\"surf\":\"{surface}\",\"size\":{size},\"color\":\"{color}\",\"meta\":\"{meta}\"}}",
                         record.args().to_string().escape_default(),
                         style
                     );
@@ -98,7 +104,7 @@ impl VLog for WebVLogger {
     fn clear(&self, surface: &str) {
         if let Some(sender) = self.sender.as_ref() {
             let _ = sender.send(format!(
-                "{{\"clear\":true,\"surface\":\"{}\"}}",
+                "{{\"clear\":1,\"surf\":\"{}\"}}",
                 surface.escape_default()
             ));
         }

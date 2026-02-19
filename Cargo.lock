@@ -148,8 +148,6 @@ checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 [[package]]
 name = "v-log"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba46043a6541a2af6adf470b829fcbf1e38698e0dc1582579228aa42567765f4"
 
 [[package]]
 name = "version_check"
