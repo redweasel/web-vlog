@@ -16,7 +16,7 @@ Nothing is encrypted, as this is a debug utility, which should not be shipped in
 ## Usage
 
 ```rust
-use v_log::*;
+use v_log::message;
 
 // Initialize the vlogger on any free port.
 // This should be done as early as possible in the binary.
@@ -52,7 +52,7 @@ That would be done using the following code:
 ```rust
 // Init a vlogger on port 1234, ignoring the environment variable and
 // choosing "custom_target_1" as an allowed prefix for the vlogger.
-Builder::new().port(1234).add_target("custom_target_1").init().unwrap();
+web_vlog::Builder::new().port(1234).add_target("custom_target_1").init().unwrap();
 ```
 
 License: MIT OR Apache-2.0

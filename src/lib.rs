@@ -10,24 +10,30 @@
 //!
 //! This crate depends on `sha1` and `base64` due to the websocket handshake, which requires both.
 //! Nothing is encrypted, as this is a debug utility, which should not be shipped in production code.
-//! 
+//!
 //! # Usage
-//! 
-//! ```ignore
-//! use v_log::*;
-//! 
+//!
+//! ```
+//! use v_log::message;
+//!
 //! // Initialize the vlogger on any free port.
 //! // This should be done as early as possible in the binary.
 //! let port = web_vlog::init();
-//! // wait for a webbrowser to connect to the port.
 //! println!("Listening on port {port}");
+//!
+//! // Now we need a webbrowser to connect to the port.
+//! // This can be accelerated using the `open` crate.
+//! let _ = open::that(format!("http://localhost:{port}/"));
+//!
+//! // wait for a webbrowser to connect to the port.
 //! web_vlog::wait_for_connection();
-//! 
+//!
 //! message!(target: "custom_target_1", "surface", "First message");
 //! message!(target: "custom_target_2", "surface", "Second message");
 //! message!(target: "custom_target_2::submodule", "surface", "Third message");
+//! # std::thread::sleep(std::time::Duration::from_millis(100));
 //! ```
-//! 
+//!
 //! When called without environment variables, all 3 messages will be logged.
 //! Using the environment variable `RUST_VLOG` it is possible to filter by target prefixes.
 //! The environment variable is interpreted as a comma separated list of target prefix filters.
@@ -44,22 +50,25 @@
 //! Executing the executable directly with an environment variable, and executing using
 //! `cargo run` both work. This way it is also possible to use filtering in tests using `RUST_VLOG=... cargo test`.
 //! Tests in a library should only use a vlogger implementation as dev-dependency.
-//! 
+//!
 //! The target filters can also be chosen in the programm using the [`Builder`] to initialize the [`WebVLogger`].
 //! That would be done using the following code:
 //! ```
 //! // Init a vlogger on port 1234, ignoring the environment variable and
 //! // choosing "custom_target_1" as an allowed prefix for the vlogger.
-//! Builder::new().port(1234).add_target("custom_target_1").init().unwrap();
+//! web_vlog::Builder::new().port(1234).add_target("custom_target_1").init().unwrap();
 //! ```
 
 use base64::{prelude::BASE64_STANDARD, Engine};
 use sha1::Digest;
 use std::{
     fmt,
-    io::{self, BufReader, BufWriter, prelude::*},
+    io::{self, prelude::*, BufReader, BufWriter},
     net::*,
-    sync::{Condvar, Mutex, mpsc::{Receiver, Sender, channel}},
+    sync::{
+        mpsc::{channel, Receiver, Sender},
+        Condvar, Mutex,
+    },
 };
 use v_log::{Color, Record, SetVLoggerError, VLog, Visual};
 
@@ -118,7 +127,7 @@ impl Builder {
         }
     }
     /// Set the port on which the server will be made available.
-    /// 
+    ///
     /// If set to 0, an available port will be choosen by the OS.
     pub fn port(&mut self, port: u16) -> &mut Self {
         self.port = port;
@@ -126,26 +135,29 @@ impl Builder {
     }
     /// Add a target to the target whitelist.
     /// If the whitelist is left empty, all targets are allowed.
-    pub fn add_target(&mut self, target: String) -> &mut Self {
-        self.targets.push(target);
+    pub fn add_target(&mut self, target: &str) -> &mut Self {
+        self.targets.push(target.to_owned());
         self
     }
-    /// Read the targets from the 
+    /// Read the targets from the
     pub fn targets_from_env(&mut self) -> &mut Self {
         if let Ok(var) = std::env::var("RUST_VLOG") {
             for target in var.split(",") {
-                self.add_target(target.to_owned());
+                let target = target.trim();
+                if !target.is_empty() {
+                    self.add_target(target);
+                }
             }
         }
         self
     }
     /// Initialize the [`WebVLogger`] and set it as the global vlogger for [`v_log`].
-    /// 
+    ///
     /// Returns the actual port, which the server runs on.
     /// This is only relevant if the port was set to 0.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// If the global vlogger has already been set an [`InitError::SetVLoggerError`] is returned.
     /// If the server could not be started on the chosen port, the [`std::io::Error`] is returned inside [`InitError::TcpError`].
     pub fn init(&self) -> Result<u16, InitError> {
@@ -157,6 +169,7 @@ impl Builder {
         };
         vlogger.targets.sort();
         vlogger.targets.dedup();
+        println!("{:?}", vlogger.targets);
         // first try to set the vlogger.
         v_log::set_boxed_vlogger(Box::new(vlogger))?;
         // then try to open the port on localhost
@@ -178,9 +191,16 @@ impl Builder {
 
 impl VLog for WebVLogger {
     fn enabled(&self, metadata: &v_log::Metadata) -> bool {
-        self.targets.is_empty() || self.targets.iter().any(|target| metadata.target().starts_with(target))
+        self.targets.is_empty()
+            || self
+                .targets
+                .iter()
+                .any(|target| metadata.target().starts_with(target))
     }
     fn vlog(&self, record: &Record) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
         // convert the record into a message to be send to the frontend.
         let surface = record.surface().escape_default();
         let msg;
@@ -202,7 +222,7 @@ impl VLog for WebVLogger {
             _ => unimplemented!(),
         };
         let meta = format_args!(
-            "{};{}/{}:{}",
+            "{{\"target\":\"{}\",\"file\":\"{}/{}\",\"line\":{}}}",
             record.target().escape_default(),
             env!("CARGO_MANIFEST_DIR").escape_default(),
             record
@@ -223,17 +243,17 @@ impl VLog for WebVLogger {
         match record.visual() {
             Visual::Message => {
                 msg = format!(
-                    "{{\"msg\":\"{label}\",\"surf\":\"{surface}\",\"col\":\"{color}\",\"meta\":\"{meta}\"}}",
+                    "{{\"msg\":\"{label}\",\"surf\":\"{surface}\",\"col\":\"{color}\",\"meta\":{meta}}}",
                 );
             }
             Visual::Label { x, y, z, alignment } => {
                 msg = format!(
-                    "{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"align\":{},\"surf\":\"{surface}\",\"size\":{size},\"col\":\"{color}\",\"meta\":\"{meta}\"}}",
+                    "{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"align\":{},\"surf\":\"{surface}\",\"size\":{size},\"col\":\"{color}\",\"meta\":{meta}}}",
                     *alignment as u8
                 );
             }
             Visual::Point { x, y, z, style } => {
-                msg = format!("{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"style\":\"{style:?}\",\"surf\":\"{surface}\",\"size\":{size},\"col\":\"{color}\",\"meta\":\"{meta}\"}}");
+                msg = format!("{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"style\":\"{style:?}\",\"surf\":\"{surface}\",\"size\":{size},\"col\":\"{color}\",\"meta\":{meta}}}");
             }
             Visual::Line {
                 x1,
@@ -245,7 +265,7 @@ impl VLog for WebVLogger {
                 style,
             } => {
                 msg = format!(
-                    "{{\"lbl\":\"{label}\",\"pos\":[{x1},{y1},{z1}],\"pos2\":[{x2},{y2},{z2}],\"style\":\"{:?}\",\"surf\":\"{surface}\",\"size\":{size},\"col\":\"{color}\",\"meta\":\"{meta}\"}}",
+                    "{{\"lbl\":\"{label}\",\"pos\":[{x1},{y1},{z1}],\"pos2\":[{x2},{y2},{z2}],\"style\":\"{:?}\",\"surf\":\"{surface}\",\"size\":{size},\"col\":\"{color}\",\"meta\":{meta}}}",
                     style
                 );
             }
@@ -289,6 +309,7 @@ pub fn init() -> u16 {
 
 /// Wait for a client to connect to the vlogging server.
 /// This blocks indefinitely if no server has been started.
+#[allow(dead_code)]
 pub fn wait_for_connection() {
     let lock = WAIT.0.lock().unwrap();
     let _lock = WAIT.1.wait_while(lock, |v| !*v).unwrap();

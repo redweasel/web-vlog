@@ -94,13 +94,8 @@ $s(t,"y",p1[1]+y/2)
 $a(a,t)}$a(vg,a)}
 m=$("m");qu=[];scr=()=>m.scrollTop=m.scrollHeight;sx=0;sy=0;
 zoom=(e)=>{if(e.ctrlKey===false){sx+=Math.sign(e.deltaX)*15;sy+=Math.sign(e.deltaY)*15}for(s of $('b').children){s.setAttribute("viewBox",`${sx} ${sy} ${window.innerWidth} ${window.innerHeight}`)}};
-ws=new WebSocket(`ws://${location.hostname}:${location.port}`);
-ws.onmessage=(e)=>{
-let j=JSON.parse(e.data.replaceAll("\\'","'"));
-if(j.surf!==undefined){
-qu.push(j);
-requestAnimationFrame(e=>{
-let q=qu
+ws=new WebSocket(`ws://${location.hostname}:${location.port}`)
+f=e=>{let q=qu
 qu=[]
 for(j of q){let s=`_${j.surf}`,hr,p;vg=$(s);
 if(vg==null){vg=$c('svg')
@@ -108,10 +103,10 @@ $s(vg,"width","100%")
 $s(vg,"height","100%")
 vg.id=s
 $a($('b'),vg)
-zoom(e)}if(j.meta){p=j.meta.split(";");hr=`vscode://file/${p[1]}:0`}
-if(j.msg) {let a=$C("a"),A=$C("a"),p=m.children[m.children.length-1];a.dataset["t"]=a.textContent=`${j.meta.split(";")[0]}: ${j.msg} `;A.textContent=`(line ${j.meta.split(":")[1]})`;$a(a,A);A.href=hr;a.dataset["s"]=j.surf;a.dataset["i"]=1;a.style.color=j.col;
+zoom(e)}if(j.meta){hr=`vscode://file/${j.meta.file}:${j.meta.line}:0`}
+if(j.msg) {let a=$C("a"),A=$C("a"),p=m.children[m.children.length-1];a.dataset["t"]=a.textContent=`${j.meta.target}: ${j.msg} `;A.textContent=`(line ${j.meta.line})`;$a(a,A);A.href=hr;a.dataset["s"]=j.surf;a.dataset["i"]=1;a.style.color=j.col;
 if(p===undefined||p.dataset["t"]!=a.dataset["t"]||p.dataset["s"]!=a.dataset["s"]){$a(m,a);scr()}else{p.dataset["i"]=Number(p.dataset["i"])+1;p.textContent=a.textContent+`×${p.dataset["i"]}`}}
-else if(j.clear){vg.innerHTML="";for(e of m.children){if(j.surf==e.dataset["s"]){m.removeChild(e)}}}
+else if(j.clear){vg.innerHTML="";for(e of m.children){if(j.surf==e.dataset["s"]){e.remove()}}}
 else if(j.pos2!==undefined){addl(j.pos,j.pos2,j.lbl,j.size,j.col,String(j.style),hr)}
 else if(j.align!==undefined&&j.lbl){addlbl(j.pos,j.lbl,j.size,j.col,j.align,hr)}
 else {addpt(j.pos,j.lbl,j.size,j.col,String(j.style),hr)}
@@ -122,7 +117,11 @@ let sb=vg;btn.onclick=(e)=>{if(sb.style.visibility!="hidden")
 {btn.style.color="#777";sb.style.visibility="hidden"}else
 {btn.style.color="#FFF";sb.style.visibility="visible"}
 for(e of $("m").children){let s=e.dataset["s"];if(s!=null){if($(`_${s}`).style.visibility!="hidden"){e.style.display="block"}else {e.style.display="none"}}}scr()};
-$a($('s'),btn)}}})}}
-ws.onclose=e=>{let a=$C("a");a.textContent=`Connection Closed`;a.style.color="var(--error)";a.style.fontWeight="bold";$a(m,a);scr()};
+$a($('s'),btn)}}}
+ws.onmessage=(e)=>{
+let j=JSON.parse(e.data.replaceAll("\\'","'"));
+if(j.surf!==undefined){qu.push(j)
+requestAnimationFrame(f)}}
+ws.onclose=e=>{f();let a=$C("a");a.textContent=`Connection Closed`;a.style.color="var(--error)";a.style.fontWeight="bold";$a(m,a);scr()};
 window.onresize=zoom;$("b").onwheel=zoom;});
 </script></head><body><div id="b"></div><div id="s"></div><div id="m"></div></body></html>
