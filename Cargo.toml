@@ -4,8 +4,8 @@ version = "0.1.0"
 authors = ["redweasel"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/redweasel/v-log"
-documentation = "https://docs.rs/v-log"
+repository = "https://github.com/redweasel/web-vlog"
+documentation = "https://docs.rs/web-vlog"
 description = """
 A lightweight web based v-log implementation
 """

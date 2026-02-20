@@ -1,4 +1,11 @@
-# web-vlog
+web-vlog
+===
+
+[![Latest version](https://img.shields.io/crates/v/web-vlog.svg)](https://crates.io/crates/web-vlog)
+[![Documentation](https://docs.rs/web-vlog/badge.svg)](https://docs.rs/web-vlog)
+![License](https://img.shields.io/crates/l/web-vlog.svg)
+
+* [`web-vlog` documentation](https://docs.rs/web-vlog)
 
 `web-vlog` implements `v-log` with the goal of being feature complete but minimal in size.
 This goal is achieved by offloading the drawing to a webbrowser. The webpage is served
@@ -21,8 +28,13 @@ use v_log::message;
 // Initialize the vlogger on any free port.
 // This should be done as early as possible in the binary.
 let port = web_vlog::init();
-// wait for a webbrowser to connect to the port.
 println!("Listening on port {port}");
+
+// Now we need a webbrowser to connect to the port.
+// This can be accelerated using the `open` crate.
+let _ = open::that(format!("http://localhost:{port}/"));
+
+// wait for a webbrowser to connect to the port.
 web_vlog::wait_for_connection();
 
 message!(target: "custom_target_1", "surface", "First message");
@@ -47,7 +59,7 @@ Executing the executable directly with an environment variable, and executing us
 `cargo run` both work. This way it is also possible to use filtering in tests using `RUST_VLOG=... cargo test`.
 Tests in a library should only use a vlogger implementation as dev-dependency.
 
-The target filters can also be chosen in the programm using the [`Builder`] to initialize the [`WebVLogger`].
+The target filters can also be chosen in the programm using the `Builder` to initialize the `WebVLogger`.
 That would be done using the following code:
 ```rust
 // Init a vlogger on port 1234, ignoring the environment variable and
