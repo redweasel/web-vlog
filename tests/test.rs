@@ -90,6 +90,8 @@ fn test_init() {
         }
         label!("loading", [400., 400.], (12., Base, Center), "{:.1}%", i as f64/2.);
         message!("loading", "{:.1}%", i as f64/2.);
+        // only do the "loading" while the client is connected
+        web_vlog::wait_for_connection();
         std::thread::sleep(Duration::from_millis(16));
     }
 

@@ -18,7 +18,7 @@ The webpage uses SVG to render the vlogging surfaces and provides clickable link
 to open the relevant lines in VSCode.
 
 This crate depends on `sha1` and `base64` due to the websocket handshake, which requires both.
-Nothing is encrypted, as this is a debug utility, which should not be shipped in production code.
+**Nothing is encrypted, as this is a debug utility, which should not be shipped in production code.**
 
 ## Usage
 

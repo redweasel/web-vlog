@@ -9,7 +9,7 @@
 //! to open the relevant lines in VSCode.
 //!
 //! This crate depends on `sha1` and `base64` due to the websocket handshake, which requires both.
-//! Nothing is encrypted, as this is a debug utility, which should not be shipped in production code.
+//! **Nothing is encrypted, as this is a debug utility, which should not be shipped in production code.**
 //!
 //! # Usage
 //!
@@ -169,7 +169,6 @@ impl Builder {
         };
         vlogger.targets.sort();
         vlogger.targets.dedup();
-        println!("{:?}", vlogger.targets);
         // first try to set the vlogger.
         v_log::set_boxed_vlogger(Box::new(vlogger))?;
         // then try to open the port on localhost
@@ -318,7 +317,7 @@ pub fn wait_for_connection() {
 fn server_loop(listener: TcpListener, rx: Receiver<String>) {
     // It's ok to panic in this thread to notify the user that something went wrong.
     while let Ok((mut stream, addr)) = listener.accept() {
-        log::info!("connection from {addr}");
+        log::info!("vlogger connection from {addr}");
         if let Err(err) = handle_connection(&stream, &rx) {
             if let Err(err) = stream
                 .write_all(format!("HTTP/1.1 500 INTERNAL SERVER ERROR\r\n\r\n{err}").as_bytes())
@@ -357,7 +356,7 @@ fn handle_connection(stream: &TcpStream, rx: &Receiver<String>) -> std::io::Resu
     let (path, http) = rest.split_once(' ').unwrap_or(("", ""));
     if get == "GET" && http == "HTTP/1.1" {
         if !key_back.is_empty() {
-            log::debug!("client connected successfully");
+            log::debug!("vlogging client connected");
             {
                 let mut guard = WAIT.0.lock().unwrap();
                 *guard = true;
@@ -365,9 +364,24 @@ fn handle_connection(stream: &TcpStream, rx: &Receiver<String>) -> std::io::Resu
             }
             buf_writer.write_all(format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {key_back}\r\n\r\n").as_bytes())?;
             buf_writer.flush()?;
-            // ignore all received data, we don't need to decode it!
-            // This means we miss the close signal and can therefore no longer serve the html page.
+            stream.set_nonblocking(true)?;
+            let mut byte_buf = [0u8; 64];
             while let Ok(msg) = rx.recv() {
+                // first check if a socket close is received
+                while let Ok(bytes) = buf_reader.read(&mut byte_buf) {
+                    // don't parse it properly. Only ever expect close events to happen.
+                    // if bytes = 0, the connection has ended already without the closing message.
+                    if bytes == 0 || byte_buf[..bytes].iter().any(|b| *b == 0x88) {
+                        // close connection so the server can listen for a new connection.
+                        log::info!("vlogger connection closed");
+                        {
+                            let mut guard = WAIT.0.lock().unwrap();
+                            *guard = false;
+                            WAIT.1.notify_all();
+                        }
+                        return Ok(());
+                    }
+                }
                 // send message
                 if msg.len() < 126 {
                     buf_writer.write_all(&[0x81, msg.len() as u8])?;
@@ -394,6 +408,7 @@ fn handle_connection(stream: &TcpStream, rx: &Receiver<String>) -> std::io::Resu
     } else {
         buf_writer.write_all("HTTP/1.1 400 BAD REQUEST\r\n\r\n".as_bytes())?;
     }
+    stream.set_nonblocking(false)?;
     buf_writer.flush()?;
     Ok(())
 }
