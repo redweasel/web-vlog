@@ -62,7 +62,7 @@
 use base64::{prelude::BASE64_STANDARD, Engine};
 use sha1::Digest;
 use std::{
-    fmt,
+    fmt::{self, Write as _},
     io::{self, prelude::*, BufReader, BufWriter},
     net::*,
     sync::{
@@ -202,35 +202,33 @@ impl VLog for WebVLogger {
         }
         // convert the record into a message to be send to the frontend.
         let surface = record.surface().escape_default();
-        let msg;
         let size = record.size();
-        let hexcode;
-        let color = match *record.color() {
-            Color::Base => format_args!("var(--base)"),
-            Color::Healthy => format_args!("var(--healthy)"),
-            Color::Error => format_args!("var(--error)"),
-            Color::Warn => format_args!("var(--warn)"),
-            Color::Info => format_args!("var(--info)"),
-            Color::X => format_args!("var(--x)"),
-            Color::Y => format_args!("var(--y)"),
-            Color::Z => format_args!("var(--z)"),
-            Color::Hex(code) => {
-                hexcode = code;
-                format_args!("#{hexcode:08X}")
+        let color_meta = |start| {
+            let mut msg = format!("{start},\"meta\":{{\"target\":\"{}\",\"file\":\"{}/{}\",\"line\":{}}},\"col\":\"",
+                record.target().escape_default(),
+                env!("CARGO_MANIFEST_DIR").escape_default(),
+                record.file()
+                      .unwrap_or("")
+                      .trim_start_matches('.')
+                      .escape_default(),
+                record.line().unwrap_or(0),
+            );
+            match *record.color() {
+                Color::Base => msg.push_str("var(--base)\"}"),
+                Color::Healthy => msg.push_str("var(--healthy)\"}"),
+                Color::Error => msg.push_str("var(--error)\"}"),
+                Color::Warn => msg.push_str("var(--warn)\"}"),
+                Color::Info => msg.push_str("var(--info)\"}"),
+                Color::X => msg.push_str("var(--x)\"}"),
+                Color::Y => msg.push_str("var(--y)\"}"),
+                Color::Z => msg.push_str("var(--z)\"}"),
+                Color::Hex(hexcode) => {
+                    write!(&mut msg, "#{hexcode:08X}\"}}").unwrap()
+                }
+                _ => unimplemented!(),
             }
-            _ => unimplemented!(),
+            msg
         };
-        let meta = format_args!(
-            "{{\"target\":\"{}\",\"file\":\"{}/{}\",\"line\":{}}}",
-            record.target().escape_default(),
-            env!("CARGO_MANIFEST_DIR").escape_default(),
-            record
-                .file()
-                .unwrap_or("")
-                .trim_start_matches('.')
-                .escape_default(),
-            record.line().unwrap_or(0)
-        );
         let mut tmp = String::new();
         let label = record.args().as_str().map_or_else(
             || {
@@ -239,36 +237,20 @@ impl VLog for WebVLogger {
             },
             |s| s.escape_default(),
         );
-        match record.visual() {
+        let msg = match record.visual() {
             Visual::Message => {
-                msg = format!(
-                    "{{\"msg\":\"{label}\",\"surf\":\"{surface}\",\"col\":\"{color}\",\"meta\":{meta}}}",
-                );
+                color_meta(format_args!("{{\"msg\":\"{label}\",\"surf\":\"{surface}\""))
             }
             Visual::Label { x, y, z, alignment } => {
-                msg = format!(
-                    "{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"align\":{},\"surf\":\"{surface}\",\"size\":{size},\"col\":\"{color}\",\"meta\":{meta}}}",
-                    *alignment as u8
-                );
+                color_meta(format_args!("{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"align\":{},\"surf\":\"{surface}\",\"size\":{size}", *alignment as u8))
             }
             Visual::Point { x, y, z, style } => {
-                msg = format!("{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"style\":\"{style:?}\",\"surf\":\"{surface}\",\"size\":{size},\"col\":\"{color}\",\"meta\":{meta}}}");
+                color_meta(format_args!("{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"style\":\"{style:?}\",\"surf\":\"{surface}\",\"size\":{size}"))
             }
-            Visual::Line {
-                x1,
-                y1,
-                z1,
-                x2,
-                y2,
-                z2,
-                style,
-            } => {
-                msg = format!(
-                    "{{\"lbl\":\"{label}\",\"pos\":[{x1},{y1},{z1}],\"pos2\":[{x2},{y2},{z2}],\"style\":\"{:?}\",\"surf\":\"{surface}\",\"size\":{size},\"col\":\"{color}\",\"meta\":{meta}}}",
-                    style
-                );
+            Visual::Line { x1, y1, z1, x2, y2, z2, style } => {
+                color_meta(format_args!("{{\"lbl\":\"{label}\",\"pos\":[{x1},{y1},{z1}],\"pos2\":[{x2},{y2},{z2}],\"style\":\"{style:?}\",\"surf\":\"{surface}\",\"size\":{size}"))
             }
-        }
+        };
         // If the receiver is dropped, the messages will still be constructed, but no longer sent.
         // This case doesn't have to be optimized with an early return, as it's the error state.
         let _ = self.sender.send(msg);
