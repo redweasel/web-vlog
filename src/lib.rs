@@ -69,6 +69,7 @@ use std::{
         mpsc::{channel, Receiver, Sender},
         Condvar, Mutex,
     },
+    time::Duration,
 };
 use v_log::{Color, Record, SetVLoggerError, VLog, Visual};
 
@@ -204,13 +205,15 @@ impl VLog for WebVLogger {
         let surface = record.surface().escape_default();
         let size = record.size();
         let color_meta = |start| {
-            let mut msg = format!("{start},\"meta\":{{\"target\":\"{}\",\"file\":\"{}/{}\",\"line\":{}}},\"col\":\"",
+            let mut msg = format!(
+                "{start},\"meta\":{{\"target\":\"{}\",\"file\":\"{}/{}\",\"line\":{}}},\"col\":\"",
                 record.target().escape_default(),
                 env!("CARGO_MANIFEST_DIR").escape_default(),
-                record.file()
-                      .unwrap_or("")
-                      .trim_start_matches('.')
-                      .escape_default(),
+                record
+                    .file()
+                    .unwrap_or("")
+                    .trim_start_matches('.')
+                    .escape_default(),
                 record.line().unwrap_or(0),
             );
             match *record.color() {
@@ -222,9 +225,7 @@ impl VLog for WebVLogger {
                 Color::X => msg.push_str("var(--x)\"}"),
                 Color::Y => msg.push_str("var(--y)\"}"),
                 Color::Z => msg.push_str("var(--z)\"}"),
-                Color::Hex(hexcode) => {
-                    write!(&mut msg, "#{hexcode:08X}\"}}").unwrap()
-                }
+                Color::Hex(hexcode) => write!(&mut msg, "#{hexcode:08X}\"}}").unwrap(),
                 _ => unimplemented!(),
             }
             msg
@@ -290,10 +291,23 @@ pub fn init() -> u16 {
 
 /// Wait for a client to connect to the vlogging server.
 /// This blocks indefinitely if no server has been started.
-#[allow(dead_code)]
 pub fn wait_for_connection() {
     let lock = WAIT.0.lock().unwrap();
     let _lock = WAIT.1.wait_while(lock, |v| !*v).unwrap();
+}
+/// Wait for the client to disconnect from the vlogging server.
+/// This can be used to ensure all messages have been received.
+pub fn wait_for_disconnect() {
+    let lock = WAIT.0.lock().unwrap();
+    let _lock = WAIT.1.wait_while(lock, |v| *v).unwrap();
+}
+/// Wait for the client to disconnect from the vlogging server.
+///
+/// Returns true on success and false if it timed out.
+pub fn wait_for_disconnect_timeout(dur: Duration) -> bool {
+    let lock = WAIT.0.lock().unwrap();
+    let lock = WAIT.1.wait_timeout_while(lock, dur, |v| *v).unwrap();
+    !lock.1.timed_out()
 }
 
 fn server_loop(listener: TcpListener, rx: Receiver<String>) {
@@ -347,21 +361,31 @@ fn handle_connection(stream: &TcpStream, rx: &Receiver<String>) -> std::io::Resu
             buf_writer.write_all(format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {key_back}\r\n\r\n").as_bytes())?;
             buf_writer.flush()?;
             stream.set_nonblocking(true)?;
+            let close = |buf_writer: &mut BufWriter<&TcpStream>| {
+                // ignore IO errors here, as the condvar needs to be notified.
+                let _ = stream.set_nonblocking(false);
+                let _ = buf_writer.write_all(&[0x88, 0x80]);
+                let _ = buf_writer.flush();
+                log::info!("vlogger connection closed");
+                let mut guard = WAIT.0.lock().unwrap();
+                *guard = false;
+                WAIT.1.notify_all();
+                Ok(())
+            };
             let mut byte_buf = [0u8; 64];
             while let Ok(msg) = rx.recv() {
+                if msg.is_empty() {
+                    // this is a message to this thread, that the main thread has ended.
+                    // drop the connection to notify it that all messages have been written.
+                    return close(&mut buf_writer);
+                }
                 // first check if a socket close is received
                 while let Ok(bytes) = buf_reader.read(&mut byte_buf) {
                     // don't parse it properly. Only ever expect close events to happen.
                     // if bytes = 0, the connection has ended already without the closing message.
                     if bytes == 0 || byte_buf[..bytes].iter().any(|b| *b == 0x88) {
-                        // close connection so the server can listen for a new connection.
-                        log::info!("vlogger connection closed");
-                        {
-                            let mut guard = WAIT.0.lock().unwrap();
-                            *guard = false;
-                            WAIT.1.notify_all();
-                        }
-                        return Ok(());
+                        // close the connection correctly so the server can listen for a new connection.
+                        return close(&mut buf_writer);
                     }
                 }
                 // send message

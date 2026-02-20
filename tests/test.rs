@@ -100,8 +100,13 @@ fn test_init() {
         message!("spam", "TEST SPAMMING!");
     }
     for i in 0..100 {
-        // test that no html code injection is allowed and that the escape of ' works correctly...
-        message!("spam", "TEST SPAMMING<img src=\"fun.gif\"onerror=\"alert('{}');this.remove();\"/>", "!".repeat(i));
+        // test that no html code injection is allowed and that the escape of ' works correctly.
+        // also testing that ; and : don't mess with the metadata as that was a problem in an earlier iteration.
+        message!("spam", "TEST SPAMMING;:<img src=\"fun.gif\"onerror=\"alert('{}');this.remove();\"/>", "!".repeat(i));
         label!("spam", [(i%7)as f64*80.,(i%17)as f64*30.], "TEST SPAMMING<script>alert(\"{}\");</script>", "!".repeat(i/10));
     }
+    message!("early", "Last Message");
+    // wait just a moment to make sure the last message is properly sent.
+    // There is currently no way to flush it. That needs to be added in a future version.
+    web_vlog::wait_for_disconnect_timeout(Duration::from_millis(10));
 }
