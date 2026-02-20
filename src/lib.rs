@@ -1,121 +1,304 @@
-use anyhow::{Error, Result};
+//! `web-vlog` implements `v-log` with the goal of being feature complete but minimal in size.
+//! This goal is achieved by offloading the drawing to a webbrowser. The webpage is served
+//! exactly once before changing to a websocket connection, which handles the potentially
+//! high datarates. This setup doesn't have the performance of a direct GPU renderer, but
+//! it has decent performance at very little compiletime and runtime cost for the vlogging
+//! process itself.
+//!
+//! The webpage uses SVG to render the vlogging surfaces and provides clickable links
+//! to open the relevant lines in VSCode.
+//!
+//! This crate depends on `sha1` and `base64` due to the websocket handshake, which requires both.
+//! Nothing is encrypted, as this is a debug utility, which should not be shipped in production code.
+//! 
+//! # Usage
+//! 
+//! ```ignore
+//! use v_log::*;
+//! 
+//! // Initialize the vlogger on any free port.
+//! // This should be done as early as possible in the binary.
+//! let port = web_vlog::init();
+//! // wait for a webbrowser to connect to the port.
+//! println!("Listening on port {port}");
+//! web_vlog::wait_for_connection();
+//! 
+//! message!(target: "custom_target_1", "surface", "First message");
+//! message!(target: "custom_target_2", "surface", "Second message");
+//! message!(target: "custom_target_2::submodule", "surface", "Third message");
+//! ```
+//! 
+//! When called without environment variables, all 3 messages will be logged.
+//! Using the environment variable `RUST_VLOG` it is possible to filter by target prefixes.
+//! The environment variable is interpreted as a comma separated list of target prefix filters.
+//! Each filter, allows all targets which start with it to be vlogged. In our example
+//! above, running it with
+//! ```cmd
+//! $ RUST_VLOG=custom_target_1 ./main
+//! ```
+//! would only produce the message "First message". When instead the second target is specified
+//! ```cmd
+//! $ RUST_VLOG=custom_target_2 cargo run
+//! ```
+//! the output is "Second message" and "Third message". This is due to the filter being a prefix filter.
+//! Executing the executable directly with an environment variable, and executing using
+//! `cargo run` both work. This way it is also possible to use filtering in tests using `RUST_VLOG=... cargo test`.
+//! Tests in a library should only use a vlogger implementation as dev-dependency.
+//! 
+//! The target filters can also be chosen in the programm using the [`Builder`] to initialize the [`WebVLogger`].
+//! That would be done using the following code:
+//! ```
+//! // Init a vlogger on port 1234, ignoring the environment variable and
+//! // choosing "custom_target_1" as an allowed prefix for the vlogger.
+//! Builder::new().port(1234).add_target("custom_target_1").init().unwrap();
+//! ```
+
 use base64::{prelude::BASE64_STANDARD, Engine};
 use sha1::Digest;
 use std::{
-    io::{prelude::*, BufReader, BufWriter},
+    fmt,
+    io::{self, BufReader, BufWriter, prelude::*},
     net::*,
-    sync::mpsc::{channel, Receiver, Sender},
+    sync::{Condvar, Mutex, mpsc::{Receiver, Sender, channel}},
 };
 use v_log::{Color, Record, SetVLoggerError, VLog, Visual};
 
-struct WebVLogger {
-    sender: Option<Sender<String>>,
+static WAIT: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
+
+/// A builder for [`WebVLogger`].
+pub struct Builder {
+    port: u16,
+    targets: Vec<String>,
+}
+/// A Vlogger implementation, which hosts a webpage for the visualisation.
+pub struct WebVLogger {
+    sender: Sender<String>,
+    targets: Vec<String>,
 }
 
-impl WebVLogger {
-    fn new() -> Self {
-        Self { sender: None }
+/// The error type returned by [`init`].
+///
+/// [`init`]: fn.init.html
+#[allow(missing_copy_implementations)]
+#[derive(Debug)]
+pub enum InitError {
+    SetVLoggerError(SetVLoggerError),
+    TcpError(io::Error),
+}
+
+impl fmt::Display for InitError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::SetVLoggerError(e) => e.fmt(f),
+            Self::TcpError(e) => e.fmt(f),
+        }
     }
-    fn init(mut self) -> Result<(), SetVLoggerError> {
-        let (tx, rx) = channel();
-        self.sender = Some(tx);
-        v_log::set_boxed_vlogger(Box::new(self))?;
+}
+
+impl std::error::Error for InitError {}
+
+impl From<SetVLoggerError> for InitError {
+    fn from(value: SetVLoggerError) -> Self {
+        Self::SetVLoggerError(value)
+    }
+}
+impl From<io::Error> for InitError {
+    fn from(value: io::Error) -> Self {
+        Self::TcpError(value)
+    }
+}
+
+impl Builder {
+    /// Create a new [`Builder`] for [`WebVLogger`] with
+    /// the default port `0`, which means the OS will choose the port.
+    pub fn new() -> Self {
+        Self {
+            port: 0,
+            targets: vec![],
+        }
+    }
+    /// Set the port on which the server will be made available.
+    /// 
+    /// If set to 0, an available port will be choosen by the OS.
+    pub fn port(&mut self, port: u16) -> &mut Self {
+        self.port = port;
+        self
+    }
+    /// Add a target to the target whitelist.
+    /// If the whitelist is left empty, all targets are allowed.
+    pub fn add_target(&mut self, target: String) -> &mut Self {
+        self.targets.push(target);
+        self
+    }
+    /// Read the targets from the 
+    pub fn targets_from_env(&mut self) -> &mut Self {
+        if let Ok(var) = std::env::var("RUST_VLOG") {
+            for target in var.split(",") {
+                self.add_target(target.to_owned());
+            }
+        }
+        self
+    }
+    /// Initialize the [`WebVLogger`] and set it as the global vlogger for [`v_log`].
+    /// 
+    /// Returns the actual port, which the server runs on.
+    /// This is only relevant if the port was set to 0.
+    /// 
+    /// # Errors
+    /// 
+    /// If the global vlogger has already been set an [`InitError::SetVLoggerError`] is returned.
+    /// If the server could not be started on the chosen port, the [`std::io::Error`] is returned inside [`InitError::TcpError`].
+    pub fn init(&self) -> Result<u16, InitError> {
+        let port = self.port;
+        let (sender, rx) = channel();
+        let mut vlogger = WebVLogger {
+            sender,
+            targets: self.targets.clone(),
+        };
+        vlogger.targets.sort();
+        vlogger.targets.dedup();
+        // first try to set the vlogger.
+        v_log::set_boxed_vlogger(Box::new(vlogger))?;
+        // then try to open the port on localhost
+        // If this fails, the `rx` will be dropped.
+        // The vlogger will therefore stop.
+        let listener = TcpListener::bind(("localhost", port))?;
+        let addr = listener.local_addr()?;
+        log::info!("web-vlog server started on {addr}");
         // If the vlogger is successfully set, start the webserver.
         std::thread::spawn(move || {
-            main_loop_socket(rx);
+            server_loop(listener, rx);
         });
-        std::thread::spawn(main_loop);
-        Ok(())
+        if port != 0 {
+            assert_eq!(port, addr.port());
+        }
+        Ok(addr.port())
     }
 }
 
 impl VLog for WebVLogger {
-    fn enabled(&self, _metadata: &v_log::Metadata) -> bool {
-        true
+    fn enabled(&self, metadata: &v_log::Metadata) -> bool {
+        self.targets.is_empty() || self.targets.iter().any(|target| metadata.target().starts_with(target))
     }
     fn vlog(&self, record: &Record) {
         // convert the record into a message to be send to the frontend.
-        if let Some(sender) = self.sender.as_ref() {
-            let surface = record.surface().escape_default();
-            let msg;
-            let size = record.size();
-            let hexcode;
-            let color = match *record.color() {
-                Color::Base => format_args!("var(--base)"),
-                Color::Healthy => format_args!("var(--healthy)"),
-                Color::Error => format_args!("var(--error)"),
-                Color::Warn => format_args!("var(--warn)"),
-                Color::Info => format_args!("var(--info)"),
-                Color::X => format_args!("var(--x)"),
-                Color::Y => format_args!("var(--y)"),
-                Color::Z => format_args!("var(--z)"),
-                Color::Hex(code) => {
-                    hexcode = code;
-                    format_args!("#{hexcode:08X}")
-                }
-            };
-            let meta = format_args!(
-                "{};{}/{}:{}",
-                record.target().escape_default(),
-                env!("CARGO_MANIFEST_DIR").escape_default(),
-                record.file().unwrap_or("").trim_start_matches('.').escape_default(),
-                record.line().unwrap_or(0)
-            );
-            match record.visual() {
-                Visual::Message => {
-                    msg = format!(
-                        "{{\"msg\":\"{}\",\"surf\":\"{surface}\",\"color\":\"{color}\",\"meta\":\"{meta}\"}}",
-                        record.args().to_string().escape_default()
-                    );
-                }
-                Visual::Label { x, y, z, alignment } => {
-                    msg = format!(
-                        "{{\"label\":\"{}\",\"pos\":[{x},{y},{z}],\"align\":{},\"surf\":\"{surface}\",\"size\":{size},\"color\":\"{color}\",\"meta\":\"{meta}\"}}",
-                        record.args().to_string().escape_default(),
-                        *alignment as u8
-                    );
-                }
-                Visual::Point { x, y, z, style } => {
-                    msg = format!(
-                        "{{\"label\":\"{}\",\"pos\":[{x},{y},{z}],\"style\":\"{:?}\",\"surf\":\"{surface}\",\"size\":{size},\"color\":\"{color}\",\"meta\":\"{meta}\"}}",
-                        record.args().to_string().escape_default(),
-                        style
-                    );
-                }
-                Visual::Line {
-                    x1,
-                    y1,
-                    z1,
-                    x2,
-                    y2,
-                    z2,
-                    style,
-                } => {
-                    msg = format!(
-                        "{{\"label\":\"{}\",\"pos\":[{x1},{y1},{z1}],\"pos2\":[{x2},{y2},{z2}],\"style\":\"{:?}\",\"surf\":\"{surface}\",\"size\":{size},\"color\":\"{color}\",\"meta\":\"{meta}\"}}",
-                        record.args().to_string().escape_default(),
-                        style
-                    );
-                }
+        let surface = record.surface().escape_default();
+        let msg;
+        let size = record.size();
+        let hexcode;
+        let color = match *record.color() {
+            Color::Base => format_args!("var(--base)"),
+            Color::Healthy => format_args!("var(--healthy)"),
+            Color::Error => format_args!("var(--error)"),
+            Color::Warn => format_args!("var(--warn)"),
+            Color::Info => format_args!("var(--info)"),
+            Color::X => format_args!("var(--x)"),
+            Color::Y => format_args!("var(--y)"),
+            Color::Z => format_args!("var(--z)"),
+            Color::Hex(code) => {
+                hexcode = code;
+                format_args!("#{hexcode:08X}")
             }
-            let _ = sender.send(msg);
+            _ => unimplemented!(),
+        };
+        let meta = format_args!(
+            "{};{}/{}:{}",
+            record.target().escape_default(),
+            env!("CARGO_MANIFEST_DIR").escape_default(),
+            record
+                .file()
+                .unwrap_or("")
+                .trim_start_matches('.')
+                .escape_default(),
+            record.line().unwrap_or(0)
+        );
+        let mut tmp = String::new();
+        let label = record.args().as_str().map_or_else(
+            || {
+                tmp = record.args().to_string();
+                tmp.escape_default()
+            },
+            |s| s.escape_default(),
+        );
+        match record.visual() {
+            Visual::Message => {
+                msg = format!(
+                    "{{\"msg\":\"{label}\",\"surf\":\"{surface}\",\"col\":\"{color}\",\"meta\":\"{meta}\"}}",
+                );
+            }
+            Visual::Label { x, y, z, alignment } => {
+                msg = format!(
+                    "{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"align\":{},\"surf\":\"{surface}\",\"size\":{size},\"col\":\"{color}\",\"meta\":\"{meta}\"}}",
+                    *alignment as u8
+                );
+            }
+            Visual::Point { x, y, z, style } => {
+                msg = format!("{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"style\":\"{style:?}\",\"surf\":\"{surface}\",\"size\":{size},\"col\":\"{color}\",\"meta\":\"{meta}\"}}");
+            }
+            Visual::Line {
+                x1,
+                y1,
+                z1,
+                x2,
+                y2,
+                z2,
+                style,
+            } => {
+                msg = format!(
+                    "{{\"lbl\":\"{label}\",\"pos\":[{x1},{y1},{z1}],\"pos2\":[{x2},{y2},{z2}],\"style\":\"{:?}\",\"surf\":\"{surface}\",\"size\":{size},\"col\":\"{color}\",\"meta\":\"{meta}\"}}",
+                    style
+                );
+            }
         }
+        // If the receiver is dropped, the messages will still be constructed, but no longer sent.
+        // This case doesn't have to be optimized with an early return, as it's the error state.
+        let _ = self.sender.send(msg);
     }
     fn clear(&self, surface: &str) {
-        if let Some(sender) = self.sender.as_ref() {
-            let _ = sender.send(format!(
-                "{{\"clear\":1,\"surf\":\"{}\"}}",
-                surface.escape_default()
-            ));
-        }
+        let _ = self.sender.send(format!(
+            "{{\"clear\":1,\"surf\":\"{}\"}}",
+            surface.escape_default()
+        ));
     }
 }
 
-fn main_loop() {
-    std::panic::set_hook(Box::new(|_info| log::error!("http server thread panicked")));
-    let listener = TcpListener::bind("127.0.0.1:13700").unwrap();
-    for mut stream in listener.incoming().flatten() {
-        if let Err(err) = handle_connection(&mut stream) {
+/// Initialise the vlogger with a custom port and otherwise default configuation.
+/// If the custom port is set to 0, a free port will be choosen by the OS and
+/// returned by this function. This function never panics.
+///
+/// Vlog messages will not be filtered.
+/// The `RUST_VLOG` environment variable is not used.
+pub fn init_port(port: u16) -> Result<u16, InitError> {
+    Builder::new().port(port).init()
+}
+
+/// Initialise the vlogger with the default configuation.
+/// The target whitelist gets loaded from the environment variable
+/// `RUST_VLOG`. If it is not set, all targets are whitelisted.
+///
+/// Returns the port at which the server is made available.
+///
+/// # Panics
+///
+/// This function will panic if the vlogger has already been
+/// set or the server could not be started. For a non panicking
+/// version see [`init_port`].
+pub fn init() -> u16 {
+    Builder::new().targets_from_env().init().unwrap()
+}
+
+/// Wait for a client to connect to the vlogging server.
+/// This blocks indefinitely if no server has been started.
+pub fn wait_for_connection() {
+    let lock = WAIT.0.lock().unwrap();
+    let _lock = WAIT.1.wait_while(lock, |v| !*v).unwrap();
+}
+
+fn server_loop(listener: TcpListener, rx: Receiver<String>) {
+    // It's ok to panic in this thread to notify the user that something went wrong.
+    while let Ok((mut stream, addr)) = listener.accept() {
+        log::info!("connection from {addr}");
+        if let Err(err) = handle_connection(&stream, &rx) {
             if let Err(err) = stream
                 .write_all(format!("HTTP/1.1 500 INTERNAL SERVER ERROR\r\n\r\n{err}").as_bytes())
             {
@@ -125,96 +308,71 @@ fn main_loop() {
     }
 }
 
-fn main_loop_socket(rx: Receiver<String>) {
-    std::panic::set_hook(Box::new(|_info| log::error!("WebSocket thread panicked")));
-    let listener = TcpListener::bind("127.0.0.1:13701").unwrap();
-    while let Ok((stream, addr)) = listener.accept() {
-        log::info!("vlog connection {addr}");
-        // only allow one socket connection at the moment, so only one receiver is needed.
-        if let Err(err) = handle_socket_connection(stream, &rx) {
-            log::error!("an error occurred: {err:?}");
-        }
-    }
-}
-
-/// Initialise the logger with its default configuration.
-///
-/// Log messages will not be filtered.
-/// The `RUST_LOG` environment variable is not used.
-pub fn init() -> Result<(), SetVLoggerError> {
-    WebVLogger::new().init()
-}
-
-fn handle_connection(stream: &mut TcpStream) -> Result<(), Error> {
-    let buf_reader = BufReader::new(&*stream);
+fn handle_connection(stream: &TcpStream, rx: &Receiver<String>) -> std::io::Result<()> {
+    let mut buf_reader = BufReader::new(stream);
+    let mut buf_writer = BufWriter::new(stream);
     // only use the first line
-    let http_request = buf_reader
-        .lines()
-        .next()
-        .ok_or(Error::msg("empty/invalid http request"))??;
-
-    log::debug!("{http_request}");
+    let mut buf = String::new();
+    let mut http_request = String::new();
+    let mut key_back = String::new();
+    while let Ok(bytes) = buf_reader.read_line(&mut buf) {
+        let l = buf.trim_end();
+        log::debug!("{l}");
+        if bytes == 0 || l.is_empty() {
+            break;
+        }
+        if http_request.is_empty() {
+            http_request.push_str(l);
+        }
+        // see https://datatracker.ietf.org/doc/html/rfc6455
+        else if let Some(key) = l.strip_prefix("Sec-WebSocket-Key: ") {
+            let key = key.to_owned() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+            let digest = sha1::Sha1::digest(key);
+            key_back = BASE64_STANDARD.encode(digest);
+        }
+        buf.clear();
+    }
     let (get, rest) = http_request.split_once(' ').unwrap_or(("", ""));
     let (path, http) = rest.split_once(' ').unwrap_or(("", ""));
-
     if get == "GET" && http == "HTTP/1.1" {
-        if path == "/" {
-            stream.write_all("HTTP/1.1 200 OK\r\n\r\n".as_bytes())?;
-            stream.write_all(include_bytes!("site.html"))?;
+        if !key_back.is_empty() {
+            log::debug!("client connected successfully");
+            {
+                let mut guard = WAIT.0.lock().unwrap();
+                *guard = true;
+                WAIT.1.notify_all();
+            }
+            buf_writer.write_all(format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {key_back}\r\n\r\n").as_bytes())?;
+            buf_writer.flush()?;
+            // ignore all received data, we don't need to decode it!
+            // This means we miss the close signal and can therefore no longer serve the html page.
+            while let Ok(msg) = rx.recv() {
+                // send message
+                if msg.len() < 126 {
+                    buf_writer.write_all(&[0x81, msg.len() as u8])?;
+                    buf_writer.write_all(msg.as_bytes())?;
+                } else if msg.len() <= u16::MAX as usize {
+                    buf_writer.write_all(&[0x81, 126])?;
+                    buf_writer.write_all(&(msg.len() as u16).to_be_bytes())?;
+                    buf_writer.write_all(msg.as_bytes())?;
+                } else {
+                    buf_writer.write_all(&[0x81, 127])?;
+                    buf_writer.write_all(&(msg.len() as u64).to_be_bytes())?;
+                    buf_writer.write_all(msg.as_bytes())?;
+                }
+                buf_writer.flush()?;
+            }
+        } else if path == "/" {
+            buf_writer.write_all("HTTP/1.1 200 OK\r\n\r\n".as_bytes())?;
+            buf_writer.write_all(include_bytes!("site.html"))?;
         } else {
-            stream.write_all(
+            buf_writer.write_all(
                 "HTTP/1.1 404 NOT FOUND\r\n\r\n<html><body>Path not found</body></html>".as_bytes(),
             )?;
         }
     } else {
-        stream.write_all("HTTP/1.1 400 BAD REQUEST\r\n\r\n".as_bytes())?;
+        buf_writer.write_all("HTTP/1.1 400 BAD REQUEST\r\n\r\n".as_bytes())?;
     }
-    Ok(())
-}
-
-fn handle_socket_connection(stream: TcpStream, rx: &Receiver<String>) -> Result<(), anyhow::Error> {
-    // see https://datatracker.ietf.org/doc/html/rfc6455
-    let mut buf_reader = BufReader::new(&stream);
-    let mut buf_writer = BufWriter::new(&stream);
-
-    let mut buf = String::new();
-    let mut key_back = String::new();
-    'handshake: while let Ok(_bytes) = buf_reader.read_line(&mut buf) {
-        let (get, _) = buf.split_once(' ').unwrap_or(("", ""));
-        if get == "GET" {
-            buf.clear();
-            while let Ok(_bytes) = buf_reader.read_line(&mut buf) {
-                if buf.trim().is_empty() {
-                    buf_writer.write_all(format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {key_back}\r\n\r\n").as_bytes())?;
-                    buf_writer.flush()?;
-                    break 'handshake;
-                }
-                if let Some(key) = buf.strip_prefix("Sec-WebSocket-Key: ") {
-                    let key = key.trim().to_owned() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-                    let digest = sha1::Sha1::digest(key);
-                    key_back = BASE64_STANDARD.encode(digest);
-                }
-                buf.clear();
-            }
-        }
-    }
-    log::debug!("connected client successfully");
-    // ignore all received data.
-    while let Ok(msg) = rx.recv() {
-        // send message
-        if msg.len() < 126 {
-            buf_writer.write_all(&[0x81, msg.len() as u8])?;
-            buf_writer.write_all(msg.as_bytes())?;
-        } else if msg.len() <= u16::MAX as usize {
-            buf_writer.write_all(&[0x81, 126])?;
-            buf_writer.write_all(&bytemuck::cast_slice(&[(msg.len() as u16).swap_bytes()]))?;
-            buf_writer.write_all(msg.as_bytes())?;
-        } else {
-            buf_writer.write_all(&[0x81, 127])?;
-            buf_writer.write_all(&bytemuck::cast_slice(&[(msg.len() as u64).swap_bytes()]))?;
-            buf_writer.write_all(msg.as_bytes())?;
-        }
-        buf_writer.flush()?;
-    }
+    buf_writer.flush()?;
     Ok(())
 }

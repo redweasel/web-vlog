@@ -5,15 +5,24 @@ use v_log::*;
 #[test]
 #[rustfmt::skip]
 fn test_init() {
-    let _ = web_vlog::init();
+    // Choosing a fixed port is recommended if the VSCode links are used.
+    // That is because otherwise one has to (re)allow opening links on every run.
+    // The port is left out in this test however to avoid collisions.
+    let port = web_vlog::init();
 
     let msgcol = Color::Healthy;
     
     // Test both variants of specifying color
-    message!("", color: msgcol, "Early message 1");
+    message!("early", color: msgcol, "Early message 1");
     message!("table1", color: Healthy, "Early message (Table 1)");
 
-    let _ = open::that("http://localhost:13700/");
+    // Open the browser (quickstart the debugging session, required `open` as dependency)
+    let _ = open::that(format!("http://localhost:{port}/"));
+
+    // Instead of opening the webbrowser, one can wait for the user to do so.
+    //println!("waiting for connection on port {port}");
+    //web_vlog::wait_for_connection();
+
     std::thread::sleep(Duration::from_millis(1000));
 
     // Also test no color
@@ -32,11 +41,11 @@ fn test_init() {
         let offy = 50.;
         for (y, _) in colors.iter().enumerate() {
             let y = y as f64;
-            polyline!("table1", ([offx, offy+y*scale], [offx+9.*scale, offy+y*scale]), 1.0, Base, "-");
+            polyline!("table1", ([offx, offy+y*scale], [offx+12.*scale, offy+y*scale]), 0.0, Base, "-");
         }
-        for (x, point_style) in [Circle, FilledCircle, DashedCircle, Point, PointOutline, PointSquare, PointSquareOutline, PointDiamond, PointDiamondOutline, PointCross].into_iter().enumerate() {
+        for (x, point_style) in [Circle, FilledCircle, DashedCircle, Square, FilledSquare, DashedSquare, Point, PointOutline, PointSquare, PointSquareOutline, PointDiamond, PointDiamondOutline, PointCross].into_iter().enumerate() {
             let x = x as f64;
-            polyline!("table1", ([offx+x*scale, offy], [offx+x*scale, offy+8.*scale]), 1.0, Base, "-");
+            polyline!("table1", ([offx+x*scale, offy], [offx+x*scale, offy+8.*scale]), 0.0, Base, "-");
             for (y, color) in colors.iter().copied().enumerate() {
                 let size = (y + 2) as f64 * 3.;
                 let y = y as f64;
@@ -69,7 +78,7 @@ fn test_init() {
         }
     }
     // Draw an animation of a loading symbol (simple performance test)
-    for i in 0..200 {
+    for i in 0..=200 {
         let t = (i as f64) * 0.2;
         clear!("loading");
         for x in 0..40 {
@@ -77,15 +86,20 @@ fn test_init() {
             let y1 = (t + (x as f64)*0.1).sin() * 20. + 400.;
             let x2 = (t + (x as f64 + 1.)*0.1).cos() * 20. + 400.;
             let y2 = (t + (x as f64 + 1.)*0.1).sin() * 20. + 400.;
-            polyline!("loading", ([x1, y1], [x2, y2]), x as f64/3., Info);
+            polyline!("loading", ([x1, y1], [x2, y2]), x as f64/3.+1., Info);
         }
+        label!("loading", [400., 400.], (12., Base, Center), "{:.1}%", i as f64/2.);
         message!("loading", "{:.1}%", i as f64/2.);
         std::thread::sleep(Duration::from_millis(16));
     }
 
-    for _ in 0..100 {
-        message!("loading", "finished");
+    for _ in 0..1000 {
+        // check that these equal messages are combined
+        message!("spam", "TEST SPAMMING!");
     }
-    std::thread::sleep(Duration::from_millis(1000));
-    clear!("");
+    for i in 0..100 {
+        // test that no html code injection is allowed and that the escape of ' works correctly...
+        message!("spam", "TEST SPAMMING<img src=\"fun.gif\"onerror=\"alert('{}');this.remove();\"/>", "!".repeat(i));
+        label!("spam", [(i%7)as f64*80.,(i%17)as f64*30.], "TEST SPAMMING<script>alert(\"{}\");</script>", "!".repeat(i/10));
+    }
 }

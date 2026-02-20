@@ -4,12 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1"
 base64 = "0.22"
-sha1 = "0.10"
-bytemuck = "*"
-#v-log = "0.1"
-v-log = { path = "../v-log" }
+sha1 = { version = "0.10", default-features = false }
+v-log = { path = "../v-log" } #"0.1"
 log = "0.4"
 
 [dev-dependencies]
