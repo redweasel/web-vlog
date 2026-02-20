@@ -8,11 +8,10 @@ web-vlog
 * [`web-vlog` documentation](https://docs.rs/web-vlog)
 
 `web-vlog` implements `v-log` with the goal of being feature complete but minimal in size.
-This goal is achieved by offloading the drawing to a webbrowser. The webpage is served
-exactly once before changing to a websocket connection, which handles the potentially
-high datarates. This setup doesn't have the performance of a direct GPU renderer, but
-it has decent performance at very little compiletime and runtime cost for the vlogging
-process itself.
+This goal is achieved by offloading the drawing to a webbrowser. The webpage is served on
+`localhost` including a websocket connection for one client. This setup doesn't have the
+performance of a direct GPU renderer, but it is decent with very little compiletime and
+runtime cost for the vlogging process itself.
 
 The webpage uses SVG to render the vlogging surfaces and provides clickable links
 to open the relevant lines in VSCode.
