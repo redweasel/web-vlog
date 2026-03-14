@@ -1,6 +1,6 @@
 [package]
 name = "web-vlog"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["redweasel"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -17,7 +17,7 @@ edition = "2021"
 [dependencies]
 base64 = "0.22"
 sha1 = { version = "0.10", default-features = false }
-v-log = "0.2"
+v-log = "0.3"
 log = "0.4"
 
 [dev-dependencies]

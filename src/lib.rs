@@ -66,6 +66,7 @@ use std::{
     io::{self, prelude::*, BufReader, BufWriter},
     net::*,
     sync::{
+        atomic::AtomicBool,
         mpsc::{channel, Receiver, Sender},
         Condvar, Mutex,
     },
@@ -74,6 +75,7 @@ use std::{
 use v_log::{Color, Record, SetVLoggerError, VLog, Visual};
 
 static WAIT: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
+static INIT: AtomicBool = AtomicBool::new(false);
 
 /// A builder for [`WebVLogger`].
 pub struct Builder {
@@ -172,6 +174,7 @@ impl Builder {
         vlogger.targets.dedup();
         // first try to set the vlogger.
         v_log::set_boxed_vlogger(Box::new(vlogger))?;
+        INIT.store(true, std::sync::atomic::Ordering::SeqCst);
         // then try to open the port on localhost
         // If this fails, the `rx` will be dropped.
         // The vlogger will therefore stop.
@@ -206,9 +209,8 @@ impl VLog for WebVLogger {
         let size = record.size();
         let color_meta = |start| {
             let mut msg = format!(
-                "{start},\"meta\":{{\"target\":\"{}\",\"file\":\"{}/{}\",\"line\":{}}},\"col\":\"",
+                "{start},\"surf\":\"{surface}\",\"meta\":{{\"target\":\"{}\",\"file\":\"{}\",\"line\":{}}},\"col\":\"",
                 record.target().escape_default(),
-                env!("CARGO_MANIFEST_DIR").escape_default(),
                 record
                     .file()
                     .unwrap_or("")
@@ -225,8 +227,9 @@ impl VLog for WebVLogger {
                 Color::X => msg.push_str("var(--x)\"}"),
                 Color::Y => msg.push_str("var(--y)\"}"),
                 Color::Z => msg.push_str("var(--z)\"}"),
+                Color::Missing => msg.push_str("var(--mis)\"}"),
                 Color::Hex(hexcode) => write!(&mut msg, "#{hexcode:08X}\"}}").unwrap(),
-                _ => unimplemented!(),
+                _ => msg.push_str("#000\"}"), // unknown -> black, as Missing is already pink
             }
             msg
         };
@@ -240,16 +243,16 @@ impl VLog for WebVLogger {
         );
         let msg = match record.visual() {
             Visual::Message => {
-                color_meta(format_args!("{{\"msg\":\"{label}\",\"surf\":\"{surface}\""))
+                color_meta(format_args!("{{\"msg\":\"{label}\""))
             }
             Visual::Label { x, y, z, alignment } => {
-                color_meta(format_args!("{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"align\":{},\"surf\":\"{surface}\",\"size\":{size}", *alignment as u8))
+                color_meta(format_args!("{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"align\":{},\"size\":{size}", *alignment as u8))
             }
             Visual::Point { x, y, z, style } => {
-                color_meta(format_args!("{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"style\":\"{style:?}\",\"surf\":\"{surface}\",\"size\":{size}"))
+                color_meta(format_args!("{{\"lbl\":\"{label}\",\"pos\":[{x},{y},{z}],\"style\":\"{style:?}\",\"size\":{size}"))
             }
             Visual::Line { x1, y1, z1, x2, y2, z2, style } => {
-                color_meta(format_args!("{{\"lbl\":\"{label}\",\"pos\":[{x1},{y1},{z1}],\"pos2\":[{x2},{y2},{z2}],\"style\":\"{style:?}\",\"surf\":\"{surface}\",\"size\":{size}"))
+                color_meta(format_args!("{{\"lbl\":\"{label}\",\"pos\":[{x1},{y1},{z1}],\"pos2\":[{x2},{y2},{z2}],\"style\":\"{style:?}\",\"size\":{size}"))
             }
         };
         // If the receiver is dropped, the messages will still be constructed, but no longer sent.
@@ -261,6 +264,12 @@ impl VLog for WebVLogger {
             "{{\"clear\":1,\"surf\":\"{}\"}}",
             surface.escape_default()
         ));
+    }
+    fn flush(&self) {
+        let lock = WAIT.0.lock().unwrap();
+        if let Ok(_) = self.sender.send(String::new()) {
+            let _lock = WAIT.1.wait_while(lock, |v| *v).unwrap();
+        }
     }
 }
 
@@ -292,8 +301,10 @@ pub fn init() -> u16 {
 /// Wait for a client to connect to the vlogging server.
 /// This blocks indefinitely if no server has been started.
 pub fn wait_for_connection() {
-    let lock = WAIT.0.lock().unwrap();
-    let _lock = WAIT.1.wait_while(lock, |v| !*v).unwrap();
+    if INIT.load(std::sync::atomic::Ordering::SeqCst) {
+        let lock = WAIT.0.lock().unwrap();
+        let _lock = WAIT.1.wait_while(lock, |v| !*v).unwrap();
+    }
 }
 /// Wait for the client to disconnect from the vlogging server.
 /// This can be used to ensure all messages have been received.

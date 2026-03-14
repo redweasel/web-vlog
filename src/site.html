@@ -1,17 +1,19 @@
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>WebVLogger</title><style>
-:root {--healthy:#7D0;--base:#fff;--back:#222;--warn:#FC0;--error:#F45;--info:#58F;--x:#F15;--y:#0F3;--z:#25F;}
-body{margin:0px;font-family:sans;}
-#m{position:absolute;bottom:0;overflow:scroll;max-height:30%;background:#2228;border-right:2px solid #FFF;border-top:2px solid #FFF;border-top-right-radius:6px;}
-#m a{display:block;word-break: break-all;}
-#m a>a{display:inline;color:inherit;}
-#b{width:100vw;height:100vh;background:var(--back);}
-#b svg{position:absolute;top:0;left:0;pointer-events:none;}
-a{pointer-events:visible;}
-#s{margin:10px;padding:3px;background:#444;border:2px solid #CCC;border-radius:6px;position:absolute;top:0;right:0;max-height:80%;overflow:scroll;}
-#s button{display:block;border:none;background:#444;margin: top 2px bottom 2px;width:100%;height:21pt;font-size:14pt;}
-#s button:hover{background:#666;}
-</style><script>
+:root {--healthy:#7D0;--base:#fff;--back:#222;--warn:#FC0;--error:#F45;--info:#58F;--x:#F15;--y:#0F3;--z:#25F;--mis:#D0E}
+body{margin:0px;font-family:sans;overflow:hidden}
+#m{position:absolute;bottom:0;overflow:scroll;max-height:30%;background:#2228;border-right:2px solid #FFF;border-top:2px solid #FFF;border-top-right-radius:6px}
+#m a{display:block;word-break: break-all}
+#m a>a{display:inline;color:inherit}
+#b{width:100vw;height:100vh;background:var(--back)}
+#b svg{position:absolute;top:0;left:0;pointer-events:none;overflow:visible}
+text{stroke:black;stroke-width:2%;stroke-linejoin:bevel;paint-order:stroke}
+a{pointer-events:visible}
+#s{margin:10px;padding:3px;background:#444;border:2px solid #CCC;border-radius:6px;position:absolute;top:0;right:0;max-height:80%;overflow:scroll}
+#s button{display:block;border:none;background:#444;margin: top 2px bottom 2px;width:100%;height:21pt;font-size:14pt}
+#s button:hover{background:#666}
+#s button:focus{background:#66E}
+</style><style>text{stroke:none}</style><script>
 $=(n)=>document.getElementById(n)
 $c=(t)=>document.createElementNS("http://www.w3.org/2000/svg",t)
 $C=(t)=>document.createElement(t)
@@ -21,11 +23,11 @@ I="ideographic",T="transform",M="middle"
 document.addEventListener("DOMContentLoaded",(_)=>{
 function txt(l,si,co,an,bl){
 t=$c('text')
-t.textContent=l;Object.assign(t.style,{fill:co,stroke:"black",strokeWidth:1.5,strokeJoin:"bevel",paintOrder:"stroke",fontSize:typeof si==="string"?si:`${si}px`,textAnchor:an,dominantBaseline:bl})}
+t.textContent=l;Object.assign(t.style,{fill:co,fontSize:typeof si==="string"?si:`${si}px`,textAnchor:an,dominantBaseline:bl})}
 function addlbl(p,lbl,si,co,al,hr){
 a=$c('a')
 $s(a,"href",hr)
-txt(lbl,si==0?"1.8vh":si,co,al==1?M:(al==0?"start":(al==2?"end":M)),al==3?I:"central")
+txt(lbl,si==0?"100%":si,co,al==1?M:(al==0?"start":(al==2?"end":M)),al==3?I:"central")
 $s(t,"x",p[0]+.5)
 $s(t,"y",p[1]+.5)
 $a(a,t);$a(vg,a)}
@@ -39,32 +41,32 @@ P=s=="Point"
 st=s.endsWith("ne")||!s.includes("Fi")&&!q
 if(s.endsWith("le")||P||s=="PointOutline"){
 c=$c('circle')
-c.style.r=q?`${si/20}vh`:`${si/2}px`
+c.style.r=q?`${si/2}%`:`${si/2}px`
 c.style.fill=s=="FilledCircle"||P?co:"none"
-if(st){c.style.stroke=co;c.style.strokeWidth='.2vh'}
+if(st){c.style.stroke=co;c.style.strokeWidth='2%'}
 $a(gc,c)
 }else if(d||s.includes("Sq")){
 c = $c('rect'),x=si*0.443
 if(!q){x=si/2}
-v=q?`${-x/10}vh`:-x
+v=q?`${-x}%`:-x
 $s(c,"x",v)
 $s(c,"y",v)
-v=q?`${x*2/10}vh`:x*2
+v=q?`${x*2}%`:x*2
 $s(c,"width",v)
 $s(c,"height",v)
 if(d){$s(c,T,"rotate(45)")}
-if(st){c.style.stroke=co;c.style.strokeWidth='.2vh';c.style.fill="none"} else {c.style.fill=co}
+if(st){c.style.stroke=co;c.style.strokeWidth='2%';c.style.fill="none"} else {c.style.fill=co}
 $a(gc,c)
 }else if(R){
-x=si/28.284
+x=si/2.8284
 for(y of [-x,x]){
-l=$c('line');l.style.stroke=co;l.style.strokeWidth='.2vh'
-$s(l,"x1",`${-x}vh`);$s(l,"y1",`${-y}vh`);$s(l,"x2",`${x}vh`);$s(l,"y2",`${y}vh`);
+l=$c('line');l.style.stroke=co;l.style.strokeWidth='2%'
+$s(l,"x1",`${-x}%`);$s(l,"y1",`${-y}%`);$s(l,"x2",`${x}%`);$s(l,"y2",`${y}%`);
 $a(gc,l)}}
 if(s.startsWith("Da")){c.style.strokeDasharray="4 3"}
 if(lbl){
 b=lbl.length*10<=si&&!R
-txt(lbl,q?"1.8vh":"16px",(s.includes("F")||(q&&!s.endsWith("ne")))&&b?"white":co,M,b?"central":I);
+txt(lbl,q?"100%":"16px",(s.includes("F")||(q&&!s.endsWith("ne")))&&b?"white":co,M,b?"central":I);
 if(!b){$s(t,"y",-si/2)}
 $a(gc,t)}
 $s(gc,T,`translate(${p[0]+.5},${p[1]+.5})`)
@@ -72,7 +74,7 @@ $a(vg,gc)}
 function addl(p1,p2,lbl,th,co,s,hr){
 a=$c('a')
 $s(a,"href",hr)
-l=$c('line'),S={stroke:co,strokeWidth:th==0?'.2vh':`${th}px`,strokeLinecap:'round'}
+l=$c('line'),S={stroke:co,strokeWidth:th==0?'2%':`${th}px`,strokeLinecap:'round'}
 Object.assign(l.style,S)
 for([k,v]of[["x1",p1[0]],["y1",p1[1]],["x2",p2[0]],["y2",p2[1]]]){$s(l,k,v+.5)}
 $a(a,l)
@@ -92,36 +94,42 @@ if(lbl){txt(lbl,16,co,M,I)
 $s(t,"x",p1[0]+x/2)
 $s(t,"y",p1[1]+y/2)
 $a(a,t)}$a(vg,a)}
-m=$("m");qu=[];scr=()=>m.scrollTop=m.scrollHeight;sx=0;sy=0;
-zoom=(e)=>{if(e.ctrlKey===false){sx+=Math.sign(e.deltaX)*15;sy+=Math.sign(e.deltaY)*15}for(s of $('b').children){s.setAttribute("viewBox",`${sx} ${sy} ${window.innerWidth} ${window.innerHeight}`)}};
+m=$("m");qu=[];scr=()=>m.scrollTop=m.scrollHeight;sx=0;sy=0;zs=1
+zoom=e=>{if(e.ctrlKey){if(e.deltaY){u=e.deltaY<0?1.1:1/1.1;zs*=u;sx=(sx-e.x)*u+e.x;sy=(sy-e.y)*u+e.y;}e.preventDefault()}else{sx-=Math.sign(e.deltaX)*15;sy-=Math.sign(e.deltaY)*15}for(s of $('b').children){s.style.top=`${sy}px`;s.style.left=`${sx}px`;s.style.fontSize=`${16/zs}px`;rsz()}};
+rsz=e=>{for(s of $('b').children){s.setAttribute("viewBox",`0 0 ${100/zs} ${100/zs}`)}};
+ul=s=>{i=0;console.log(s.dataset["l"]);for(a of s.children){a.style.visibility=i<s.dataset["l"]?"inherit":"hidden";i++}}
 ws=new WebSocket(`ws://${location.hostname}:${location.port}`)
+rf=e=>{document.styleSheets[1].disabled=qu.length==0}
 f=e=>{let q=qu
 qu=[]
-for(j of q){let s=`_${j.surf}`,hr,p;vg=$(s);
-if(vg==null){vg=$c('svg')
-$s(vg,"width","100%")
-$s(vg,"height","100%")
+document.styleSheets[1].disabled=false
+for(j of q){let s=`_${j.surf}`,hr,p;vg=$(s)
+if(vg==null){if(j.clear)continue;vg=$c('svg')
+$s(vg,"width","100px")
+$s(vg,"height","100px")
 vg.id=s
 $a($('b'),vg)
-zoom(e)}if(j.meta){hr=`vscode://file/${j.meta.file}:${j.meta.line}:0`}
+rsz(e)}if(j.meta){hr=`vscode://file/${j.meta.file}:${j.meta.line}:0`}
 if(j.msg) {let a=$C("a"),A=$C("a"),p=m.children[m.children.length-1];a.dataset["t"]=a.textContent=`${j.meta.target}: ${j.msg} `;A.textContent=`(line ${j.meta.line})`;$a(a,A);A.href=hr;a.dataset["s"]=j.surf;a.dataset["i"]=1;a.style.color=j.col;
 if(p===undefined||p.dataset["t"]!=a.dataset["t"]||p.dataset["s"]!=a.dataset["s"]){$a(m,a);scr()}else{p.dataset["i"]=Number(p.dataset["i"])+1;p.textContent=a.textContent+`×${p.dataset["i"]}`}}
-else if(j.clear){vg.innerHTML="";for(e of m.children){if(j.surf==e.dataset["s"]){e.remove()}}}
+else if(j.clear){vg.innerHTML="";;for(e of m.children){if(j.surf==e.dataset["s"]){e.remove()}}}
 else if(j.pos2!==undefined){addl(j.pos,j.pos2,j.lbl,j.size,j.col,String(j.style),hr)}
 else if(j.align!==undefined&&j.lbl){addlbl(j.pos,j.lbl,j.size,j.col,j.align,hr)}
 else {addpt(j.pos,j.lbl,j.size,j.col,String(j.style),hr)}
+vg.dataset["l"]=vg.children.length
 s=`-${j.surf}`
-btn=$(s)
+let btn=$(s)
 if(!btn){btn=$C('button');btn.id=s;btn.textContent=`${j.surf}`;btn.style.color="#FFF";
-let sb=vg;btn.onclick=(e)=>{if(sb.style.visibility!="hidden")
+let sb=vg;btn.onclick=e=>{if(sb.style.visibility!="hidden")
 {btn.style.color="#777";sb.style.visibility="hidden"}else
 {btn.style.color="#FFF";sb.style.visibility="visible"}
-for(e of $("m").children){let s=e.dataset["s"];if(s!=null){if($(`_${s}`).style.visibility!="hidden"){e.style.display="block"}else {e.style.display="none"}}}scr()};
-$a($('s'),btn)}}}
+for(e of $("m").children){let s=e.dataset["s"];if(s!=null){if($(`_${s}`).style.visibility!="hidden"){e.style.display="block"}else {e.style.display="none"}}}scr()}
+btn.onkeydown=e=>{if(e.key=="ArrowLeft")sb.dataset["l"]=Math.max(0,Number(sb.dataset["l"])-1);if(e.key=="ArrowRight")sb.dataset["l"]=Math.min(sb.children.length,Number(sb.dataset["l"])+1);ul(sb)};
+$a($('s'),btn)}}requestAnimationFrame(rf)}
 ws.onmessage=(e)=>{
 let j=JSON.parse(e.data.replaceAll("\\'","'"));
-if(j.surf!==undefined){qu.push(j)
-requestAnimationFrame(f)}}
+if(j.surf!==undefined){if(j.clear){let q=qu;qu=[];for(v of q){if(v.surf!=j.surf)qu.push(v)}}qu.push(j)
+if(qu.length<=1)requestAnimationFrame(f)}}
 ws.onclose=e=>{f();let a=$C("a");a.textContent=`Connection Closed`;a.style.color="var(--error)";a.style.fontWeight="bold";$a(m,a);scr()};
-window.onresize=zoom;$("b").onwheel=zoom;});
+window.onresize=rsz;$("b").onwheel=zoom;});
 </script></head><body><div id="b"></div><div id="s"></div><div id="m"></div></body></html>

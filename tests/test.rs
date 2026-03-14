@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use v_log::*;
+use v_log::macros::*;
+use v_log::{Color, LineStyle, PointStyle, TextAlignment};
 
 #[test]
 #[rustfmt::skip]
@@ -20,8 +21,8 @@ fn test_init() {
     let _ = open::that(format!("http://localhost:{port}/"));
 
     // Instead of opening the webbrowser, one can wait for the user to do so.
-    //println!("waiting for connection on port {port}");
-    //web_vlog::wait_for_connection();
+    println!("waiting for connection on port {port}");
+    web_vlog::wait_for_connection();
 
     std::thread::sleep(Duration::from_millis(1000));
 
@@ -41,11 +42,11 @@ fn test_init() {
         let offy = 50.;
         for (y, _) in colors.iter().enumerate() {
             let y = y as f64;
-            polyline!("table1", ([offx, offy+y*scale], [offx+12.*scale, offy+y*scale]), 0.0, Base, "-");
+            polyline!("table1", [[offx, offy+y*scale], [offx+12.*scale, offy+y*scale]], 0.0, Base, "-");
         }
         for (x, point_style) in [Circle, FilledCircle, DashedCircle, Square, FilledSquare, DashedSquare, Point, PointOutline, PointSquare, PointSquareOutline, PointDiamond, PointDiamondOutline, PointCross].into_iter().enumerate() {
             let x = x as f64;
-            polyline!("table1", ([offx+x*scale, offy], [offx+x*scale, offy+8.*scale]), 0.0, Base, "-");
+            polyline!("table1", [[offx+x*scale, offy], [offx+x*scale, offy+8.*scale]], 0.0, Base, "-");
             for (y, color) in colors.iter().copied().enumerate() {
                 let size = (y + 2) as f64 * 3.;
                 let y = y as f64;
@@ -77,6 +78,18 @@ fn test_init() {
             }
         }
     }
+
+    // test polygon with automatically sized text
+    polyline!("polygon", closed: [[500., 100.], [500., 200.], [550., 200.]], 2., Base, "_>", 0.0, "Polygon");
+    polyline!("polygon", [[600., 100.], [600., 200.], [700., 200.]], 2., Base, "_>");
+
+    // test arrows
+    arrow!("arrows", [610., 190.], [[1., 0.], [0., -1.], [1., -1.], [1., 1.], [1., 2.]], (50.), 4.0);
+    arrow!("arrows", [610., 320.], [1., 0.], (20.), 5.0, Base);
+    arrow!("arrows", [610., 340.], [20., 0.], 5.0, Base);
+    arrow!("arrows", [610., 360.], [1., 0.], (20.), 5.0, Base, "");
+    arrow!("arrows", [610., 380.], [20., 0.], 5.0, Base, "");
+
     // Draw an animation of a loading symbol (simple performance test)
     for i in 0..=200 {
         let t = (i as f64) * 0.2;
@@ -86,7 +99,7 @@ fn test_init() {
             let y1 = (t + (x as f64)*0.1).sin() * 20. + 400.;
             let x2 = (t + (x as f64 + 1.)*0.1).cos() * 20. + 400.;
             let y2 = (t + (x as f64 + 1.)*0.1).sin() * 20. + 400.;
-            polyline!("loading", ([x1, y1], [x2, y2]), x as f64/3.+1., Info);
+            polyline!("loading", [[x1, y1], [x2, y2]], x as f64/3.+1., Info);
         }
         label!("loading", [400., 400.], (12., Base, Center), "{:.1}%", i as f64/2.);
         message!("loading", "{:.1}%", i as f64/2.);
@@ -106,7 +119,21 @@ fn test_init() {
         label!("spam", [(i%7)as f64*80.,(i%17)as f64*30.], "TEST SPAMMING<script>alert(\"{}\");</script>", "!".repeat(i/10));
     }
     message!("early", "Last Message");
-    // wait just a moment to make sure the last message is properly sent.
-    // There is currently no way to flush it. That needs to be added in a future version.
-    web_vlog::wait_for_disconnect_timeout(Duration::from_millis(10));
+
+    // use predefined square shape
+    point!("s1", [10., 10.], 10., Base, "-S", "1");
+
+    // use closed polyline using scale independent line thickness 0
+    polyline!("s2", closed: [[5., 5.], [5., 15.], [15., 15.], [15., 5.]], 0., Base, "-", 10., "2");
+
+    // draw every line individually and put a label in the center
+    polyline!("s3", ([5., 5.], [5., 15.]), 0., Base, "-");
+    polyline!("s3", ([5., 15.], [15., 15.]), 0., Base, "-");
+    polyline!("s3", ([15., 15.], [15., 5.]), 0., Base, "-");
+    polyline!("s3", ([15., 5.], [5., 5.]), 0., Base, "-");
+    label!("s3", [10., 10.], (10., Base, "."), "3");
+
+    clear!("just-clear");
+
+    v_log::vlogger().flush();
 }

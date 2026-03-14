@@ -135,9 +135,9 @@ checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
 name = "v-log"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "605d84bf0731300d833895bc52a0b0fe612ae3a23614cba7c56804ed49e2b7bc"
+checksum = "e2b809bf40c1b129ea6be466fd259343b7606a6a39f6d0983d0a8f1dbe3da08a"
 
 [[package]]
 name = "version_check"
@@ -147,7 +147,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "web-vlog"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64",
  "log",
